@@ -1,0 +1,6 @@
+rootProject.name = 'chat-backend'
+
+include 'chat-gateway'
+include 'message-service'
+include 'delivery-service'
+include 'chat-shared-lib'

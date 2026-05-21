@@ -1,0 +1,33 @@
+package com.messenger.chatgateway.websocket.listener;
+
+import com.messenger.chatgateway.caching.service.RedisService;
+import com.messenger.chatgateway.presence.dto.UserStatus;
+import com.messenger.chatgateway.presence.service.PresenceService;
+import com.messenger.chatgateway.websocket.util.StompSessionUtils;
+import lombok.RequiredArgsConstructor;
+import org.springframework.context.event.EventListener;
+import org.springframework.stereotype.Component;
+import org.springframework.web.socket.messaging.SessionConnectedEvent;
+
+
+import java.time.Duration;
+
+import static org.chat.shared.caching.RedisConstants.*;
+
+@Component
+@RequiredArgsConstructor
+public class StompConnectListener {
+
+    private final RedisService redisService;
+    private final PresenceService presenceService;
+
+    @EventListener
+    public void onConnect(SessionConnectedEvent event) {
+        String userId = StompSessionUtils.getUserIdFromEvent(event);
+
+        redisService.addWithTtl(ONLINE_KEY.formatted(userId), DUMMY_VALUE, Duration.ofSeconds(60));
+
+        presenceService.sendUserStatusEvent(userId, UserStatus.ONLINE);
+
+    }
+}
