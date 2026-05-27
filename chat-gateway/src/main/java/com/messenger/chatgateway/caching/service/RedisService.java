@@ -2,6 +2,7 @@ package com.messenger.chatgateway.caching.service;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
@@ -31,6 +32,17 @@ public class RedisService {
 
     public List<String> getList(String key) {
         return stringRedisTemplate.opsForList().range(key, 0, -1);
+    }
+
+    @SuppressWarnings("unchecked")
+    public <T> T executeScript(
+            String key,
+            RedisScript<T> script
+    ) {
+        return (T) stringRedisTemplate.execute(
+                script,
+                List.of(key)
+        );
     }
 
 }

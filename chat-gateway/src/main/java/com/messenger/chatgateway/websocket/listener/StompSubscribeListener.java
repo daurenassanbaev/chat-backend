@@ -2,6 +2,7 @@ package com.messenger.chatgateway.websocket.listener;
 
 import com.messenger.chatgateway.caching.service.RedisService;
 import com.messenger.chatgateway.messaging.service.ChatService;
+import com.messenger.chatgateway.messaging.service.OfflineMessageService;
 import com.messenger.chatgateway.websocket.util.StompSessionUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.event.EventListener;
@@ -21,6 +22,7 @@ public class StompSubscribeListener {
 
     private final RedisService redisService;
     private final ChatService chatService;
+    private final OfflineMessageService offlineMessageService;
 
     @EventListener
     public void onSubscribe(SessionSubscribeEvent event) {
@@ -31,12 +33,10 @@ public class StompSubscribeListener {
         String userId = StompSessionUtils.getUserIdFromEvent(event);
 
         String offlineMsgKey = OFFLINE_KEY.formatted(userId);
-        List<String> offlineMessages = redisService.getList(OFFLINE_KEY.formatted(userId));
+        List<String> offlineMessages = offlineMessageService.getAndDelete(offlineMsgKey);
 
-        // TODO: WITH LUA
         if (offlineMessages != null && !offlineMessages.isEmpty()) {
             chatService.sendOfflineMessages(offlineMessages);
-            redisService.delete(offlineMsgKey);
         }
 
         redisService.setTtl(ONLINE_KEY.formatted(userId), Duration.ofSeconds(60));
