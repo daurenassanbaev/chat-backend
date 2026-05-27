@@ -6,12 +6,16 @@ import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.chat.shared.kafka.event.MessageSentEvent;
+import org.messenger.messagesvc.caching.constants.RedisKeys;
+import org.messenger.messagesvc.caching.service.RedisService;
+import org.messenger.messagesvc.message.dto.MessageDto;
 import org.messenger.messagesvc.message.entity.Message;
 import org.messenger.messagesvc.message.entity.MessageStatus;
 import org.messenger.messagesvc.message.entity.OutboxEvent;
 import org.messenger.messagesvc.message.repository.MessageRepository;
 import org.messenger.messagesvc.message.repository.OutboxRepository;
-import org.messenger.messagesvc.message.util.mapper.MessageEventMapper;
+import org.messenger.messagesvc.message.util.mapper.ChatKeyGenerator;
+import org.messenger.messagesvc.message.util.mapper.MessageMapper;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 
@@ -26,30 +30,88 @@ public class MessageService {
     private final MessageRepository messageRepository;
     private final OutboxRepository outboxRepository;
     private final ObjectMapper objectMapper;
+    private final RedisService redisService;
+
 
     @Transactional
     public void save(MessageSentEvent eventDto) {
 
         Message message = new Message();
-        fillMessageEntity(eventDto, message);
+
+        fillMessageEntity(
+                eventDto,
+                message
+        );
 
         try {
 
-            messageRepository.save(message);
+            messageRepository.save(
+                    message
+            );
 
-            OutboxEvent event = new OutboxEvent();
+            OutboxEvent event =
+                    new OutboxEvent();
 
-            event.setId(UUID.randomUUID());
-            event.setTopic("message-saved");
+            event.setId(
+                    UUID.randomUUID()
+            );
+
+            event.setTopic(
+                    "message-saved"
+            );
+
             event.setPayload(
                     objectMapper.writeValueAsString(
-                            MessageEventMapper.toMessageSavedEvent(eventDto)
+                            MessageMapper.toMessageSavedEvent(
+                                    eventDto
+                            )
                     )
             );
-            event.setSent(false);
-            event.setCreatedAt(LocalDateTime.now());
 
-            outboxRepository.save(event);
+            event.setSent(
+                    false
+            );
+
+            event.setCreatedAt(
+                    LocalDateTime.now()
+            );
+
+            outboxRepository.save(
+                    event
+            );
+
+            try {
+
+                String key =
+                        ChatKeyGenerator.generate(
+                                message.getFromUserId(),
+                                message.getToUserId()
+                        );
+
+                MessageDto dto =
+                        MessageMapper.toMessageDto(
+                                message
+                        );
+
+                redisService.add2ZSet(
+                        key,
+                        dto,
+                        dto.createdAt()
+                                .toEpochMilli()
+                );
+
+                redisService.trimZSet(
+                        key,
+                        100
+                );
+
+            } catch (Exception ex) {
+
+                log.warn(
+                        "Redis unavailable",
+                        ex
+                );
+            }
 
         } catch (DataIntegrityViolationException ex) {
 
@@ -59,7 +121,11 @@ public class MessageService {
             );
 
         } catch (JsonProcessingException ex) {
-            throw new RuntimeException("Failed to serialize event", ex);
+
+            throw new RuntimeException(
+                    "Failed to serialize event",
+                    ex
+            );
         }
     }
 

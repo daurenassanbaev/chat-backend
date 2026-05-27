@@ -9,7 +9,6 @@ import org.messenger.deliverysvc.delivery.kafka.KafkaProducerService;
 import org.springframework.stereotype.Service;
 
 import java.util.Objects;
-import java.util.concurrent.ExecutionException;
 
 import static org.chat.shared.caching.RedisConstants.*;
 
@@ -20,12 +19,10 @@ public class DeliveryService {
     private final KafkaProducerService producerService;
     private final RedisService redisService;
 
-    private static final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper;
 
-    // REDIS
-    // KAFKA
+    public void processMessageEvent(MessageSavedEvent eventDto) {
 
-    public void processMessageEvent(MessageSavedEvent eventDto) throws ExecutionException, InterruptedException {
         String key = ONLINE_KEY.formatted(eventDto.toUserId());
         String onlineVal = redisService.get(key);
 
