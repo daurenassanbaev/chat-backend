@@ -14,17 +14,10 @@ public class ChatKeyGenerator {
             String user2
     ) {
 
-        List<String> users =
-                Stream.of(
-                        user1,
-                        user2
-                )
+        List<String> users = Stream.of(user1, user2)
                 .sorted()
                 .toList();
 
-        return RedisKeys.LAST_MSG_KEY.formatted(
-                users.get(0),
-                users.get(1)
-        );
+        return RedisKeys.LAST_MSG_KEY.formatted(users.get(0), users.get(1));
     }
 }

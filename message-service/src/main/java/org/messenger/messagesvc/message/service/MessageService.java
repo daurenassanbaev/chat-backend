@@ -38,28 +38,16 @@ public class MessageService {
 
         Message message = new Message();
 
-        fillMessageEntity(
-                eventDto,
-                message
-        );
+        fillMessageEntity(eventDto, message);
 
         try {
 
-            messageRepository.save(
-                    message
-            );
+            messageRepository.save(message);
 
-            OutboxEvent event =
-                    new OutboxEvent();
+            OutboxEvent event = new OutboxEvent();
 
-            event.setId(
-                    UUID.randomUUID()
-            );
-
-            event.setTopic(
-                    "message-saved"
-            );
-
+            event.setId(UUID.randomUUID());
+            event.setTopic("message-saved");
             event.setPayload(
                     objectMapper.writeValueAsString(
                             MessageMapper.toMessageSavedEvent(
@@ -67,18 +55,10 @@ public class MessageService {
                             )
                     )
             );
+            event.setSent(false);
+            event.setCreatedAt(LocalDateTime.now());
 
-            event.setSent(
-                    false
-            );
-
-            event.setCreatedAt(
-                    LocalDateTime.now()
-            );
-
-            outboxRepository.save(
-                    event
-            );
+            outboxRepository.save(event);
 
             try {
 
