@@ -36,7 +36,6 @@ public class KafkaConsumerService {
 
             messageService.save(eventDto);
 
-
             ack.acknowledge();
 
             log.info(
