@@ -22,16 +22,14 @@ public class DeliveryService {
     private final ObjectMapper objectMapper;
 
     public void processMessageEvent(MessageSavedEvent eventDto) {
-
-        String key = ONLINE_KEY.formatted(eventDto.toUserId());
+        String key = ONLINE_KEY.formatted(eventDto.recipientId());
         String onlineVal = redisService.get(key);
 
         if (Objects.isNull(onlineVal)) {
-            String offlineKey = OFFLINE_KEY.formatted(eventDto.toUserId());
-
+            String offlineKey = OFFLINE_KEY.formatted(eventDto.recipientId());
             try {
                 String json = objectMapper.writeValueAsString(this.buildMessageDeliveredEvent(eventDto));
-                redisService.lPush(offlineKey, json);
+                redisService.rPush(offlineKey, json);
             } catch (Exception e) {
                 throw new RuntimeException(e);
             }
@@ -44,9 +42,12 @@ public class DeliveryService {
 
     private MessageDeliveredEvent buildMessageDeliveredEvent(MessageSavedEvent eventDto) {
         return MessageDeliveredEvent.builder()
-                .fromUserId(eventDto.fromUserId())
-                .toUserId(eventDto.toUserId())
+                .messageId(eventDto.messageId())
+                .chatId(eventDto.chatId())
+                .senderId(eventDto.senderId())
+                .recipientId(eventDto.recipientId())
                 .content(eventDto.content())
+                .createdAt(eventDto.createdAt())
                 .build();
     }
 }

@@ -28,7 +28,7 @@ public class RedisService {
         return stringRedisTemplate.opsForValue().get(key);
     }
 
-    public void lPush(String key, String value) {
+    public void rPush(String key, String value) {
         stringRedisTemplate.opsForList().rightPush(key, value);
     }
 

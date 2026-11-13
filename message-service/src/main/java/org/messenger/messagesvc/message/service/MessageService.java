@@ -1,8 +1,5 @@
 package org.messenger.messagesvc.message.service;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.chat.shared.kafka.event.MessageSentEvent;
@@ -11,16 +8,10 @@ import org.messenger.messagesvc.caching.service.RedisService;
 import org.messenger.messagesvc.message.dto.MessageDto;
 import org.messenger.messagesvc.message.entity.Message;
 import org.messenger.messagesvc.message.entity.MessageStatus;
-import org.messenger.messagesvc.message.entity.OutboxEvent;
 import org.messenger.messagesvc.message.repository.MessageRepository;
-import org.messenger.messagesvc.message.repository.OutboxRepository;
-import org.messenger.messagesvc.message.util.mapper.ChatKeyGenerator;
 import org.messenger.messagesvc.message.util.mapper.MessageMapper;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
-
-import java.time.LocalDateTime;
-import java.util.UUID;
+import org.springframework.transaction.annotation.Transactional;
 
 @Slf4j
 @Service
@@ -28,93 +19,51 @@ import java.util.UUID;
 public class MessageService {
 
     private final MessageRepository messageRepository;
-    private final OutboxRepository outboxRepository;
-    private final ObjectMapper objectMapper;
+    private final ChatService chatService;
+    private final ChatMemberService chatMemberService;
+    private final OutboxService outboxService;
     private final RedisService redisService;
-
 
     @Transactional
     public void save(MessageSentEvent eventDto) {
+        if (messageRepository.existsById(eventDto.messageId())) {
+            log.info("Message {} already processed", eventDto.messageId());
+            return;
+        }
+
+        chatService.ensureChatForMessage(eventDto);
 
         Message message = new Message();
 
         fillMessageEntity(eventDto, message);
 
+        messageRepository.save(message);
+
+        outboxService.saveMessageSavedEvents(
+                eventDto,
+                chatMemberService.findRecipients(message.getChatId(), message.getSenderId())
+        );
+
         try {
+            String key = RedisKeys.LAST_MSG_KEY.formatted(message.getChatId());
 
-            messageRepository.save(message);
+            MessageDto dto = MessageMapper.toMessageDto(message);
 
-            OutboxEvent event = new OutboxEvent();
+            redisService.add2ZSet(key, dto, dto.createdAt().toEpochMilli());
 
-            event.setId(UUID.randomUUID());
-            event.setTopic("message-saved");
-            event.setPayload(
-                    objectMapper.writeValueAsString(
-                            MessageMapper.toMessageSavedEvent(
-                                    eventDto
-                            )
-                    )
-            );
-            event.setSent(false);
-            event.setCreatedAt(LocalDateTime.now());
+            redisService.trimZSet(key, 100);
 
-            outboxRepository.save(event);
-
-            try {
-
-                String key =
-                        ChatKeyGenerator.generate(
-                                message.getFromUserId(),
-                                message.getToUserId()
-                        );
-
-                MessageDto dto =
-                        MessageMapper.toMessageDto(
-                                message
-                        );
-
-                redisService.add2ZSet(
-                        key,
-                        dto,
-                        dto.createdAt()
-                                .toEpochMilli()
-                );
-
-                redisService.trimZSet(
-                        key,
-                        100
-                );
-
-            } catch (Exception ex) {
-
-                log.warn(
-                        "Redis unavailable",
-                        ex
-                );
-            }
-
-        } catch (DataIntegrityViolationException ex) {
-
-            log.info(
-                    "Message {} already processed",
-                    eventDto.messageId()
-            );
-
-        } catch (JsonProcessingException ex) {
-
-            throw new RuntimeException(
-                    "Failed to serialize event",
-                    ex
-            );
+        } catch (Exception ex) {
+            log.warn("Redis unavailable", ex);
         }
     }
 
     private void fillMessageEntity(MessageSentEvent eventDto, Message message) {
         message.setId(eventDto.messageId());
         message.setContent(eventDto.content());
-        message.setFromUserId(eventDto.fromUserId());
-        message.setToUserId(eventDto.toUserId());
-        message.setCreated_at(eventDto.createdAt());
+        message.setChatId(eventDto.chatId());
+        message.setSenderId(eventDto.senderId());
+        message.setCreatedAt(eventDto.createdAt());
         message.setStatus(MessageStatus.SENT);
     }
 }

@@ -27,7 +27,13 @@ public class ChatService {
     private final ObjectMapper objectMapper;
 
     public void processMessage(MessageDto messageDto, String userId) {
-        MessageSentEvent eventDto = MessageMapper.toMessageSentEvent(userId, UUID.randomUUID(), messageDto);
+        UUID chatId = messageDto.chatId() != null ? messageDto.chatId() : UUID.randomUUID();
+        MessageSentEvent eventDto = MessageMapper.toMessageSentEvent(
+                UUID.fromString(userId),
+                UUID.randomUUID(),
+                chatId,
+                messageDto
+        );
 
         kafkaProducerService.sendMessageSentEvent(eventDto);
 
@@ -35,7 +41,7 @@ public class ChatService {
     }
 
     public void sendMessage(MessageDeliveredEvent eventDto) {
-        messagingTemplate.convertAndSendToUser(eventDto.toUserId(), QUEUE_MESSAGES_DEST, eventDto.content());
+        messagingTemplate.convertAndSendToUser(eventDto.recipientId().toString(), QUEUE_MESSAGES_DEST, eventDto);
     }
 
     public void sendOfflineMessages(List<String> offlineMessages) {

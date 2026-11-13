@@ -8,8 +8,9 @@ import java.util.UUID;
 @Builder
 public record MessageSavedEvent(
         UUID messageId,
-        String fromUserId,
-        String toUserId,
+        UUID chatId,
+        UUID senderId,
+        UUID recipientId,
         String content,
         Instant createdAt
 ) {}

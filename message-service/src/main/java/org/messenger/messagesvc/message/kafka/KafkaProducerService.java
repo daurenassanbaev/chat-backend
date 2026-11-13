@@ -17,31 +17,22 @@ public class KafkaProducerService {
     private final KafkaTemplate<String, MessageSavedEvent> kafkaTemplate;
 
     public void sendMessage(MessageSavedEvent event) {
-
         try {
-
-            var result = kafkaTemplate
-                    .send(
-                            KafkaTopics.CHAT_PROCESSED,
-                            event.toUserId(),
-                            event
-                    )
-                    .get();
+            var result = kafkaTemplate.send(KafkaTopics.CHAT_PROCESSED, event.recipientId().toString(), event).get();
 
             log.info(
-                    "Sent MessageSavedEvent messageId={}, toUserId={}, partition={}, offset={}",
+                    "Sent MessageSavedEvent messageId={}, recipientId={}, partition={}, offset={}",
                     event.messageId(),
-                    event.toUserId(),
+                    event.recipientId(),
                     result.getRecordMetadata().partition(),
                     result.getRecordMetadata().offset()
             );
 
         } catch (Exception ex) {
-
             log.error(
-                    "Failed to send MessageSavedEvent messageId={}, toUserId={}",
+                    "Failed to send MessageSavedEvent messageId={}, recipientId={}",
                     event.messageId(),
-                    event.toUserId(),
+                    event.recipientId(),
                     ex
             );
 

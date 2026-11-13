@@ -11,7 +11,7 @@ public class KafkaTopicConfig {
 
     @Bean
     public NewTopic chatMessagesTopic() {
-        return TopicBuilder.name(KafkaTopics.CHAT_DELIVERED)
+        return TopicBuilder.name(KafkaTopics.CHAT_PROCESSED)
                 .partitions(3)
                 .replicas(1)
                 .build();
