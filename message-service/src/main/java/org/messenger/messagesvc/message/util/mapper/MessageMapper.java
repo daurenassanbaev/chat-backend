@@ -6,18 +6,22 @@ import org.chat.shared.kafka.event.MessageSentEvent;
 import org.messenger.messagesvc.message.dto.MessageDto;
 import org.messenger.messagesvc.message.entity.Message;
 
+import java.util.UUID;
+
 @UtilityClass
 public class MessageMapper {
 
     public MessageSavedEvent toMessageSavedEvent(
-            MessageSentEvent messageSentEvent
+            MessageSentEvent messageSentEvent,
+            UUID recipientId
     ) {
 
         return MessageSavedEvent.builder()
-                .fromUserId(messageSentEvent.fromUserId())
-                .content(messageSentEvent.content())
-                .toUserId(messageSentEvent.toUserId())
                 .messageId(messageSentEvent.messageId())
+                .chatId(messageSentEvent.chatId())
+                .senderId(messageSentEvent.senderId())
+                .recipientId(recipientId)
+                .content(messageSentEvent.content())
                 .createdAt(messageSentEvent.createdAt())
                 .build();
     }
@@ -25,14 +29,6 @@ public class MessageMapper {
     public MessageDto toMessageDto(
             Message message
     ) {
-
-        return new MessageDto(
-                message.getId(),
-                message.getFromUserId(),
-                message.getToUserId(),
-                message.getContent(),
-                message.getCreated_at(),
-                message.getStatus()
-        );
+        return MessageDto.from(message);
     }
 }

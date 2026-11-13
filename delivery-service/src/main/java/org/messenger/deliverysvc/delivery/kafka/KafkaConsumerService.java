@@ -21,18 +21,13 @@ public class KafkaConsumerService {
             groupId = "delivery-group",
             containerFactory = "kafkaListenerContainerFactory"
     )
-    public void listenSavedEvent(
-            MessageSavedEvent eventDto,
-            Acknowledgment ack
-    ) {
-
+    public void listenSavedEvent(MessageSavedEvent eventDto, Acknowledgment ack) {
         try {
-
             log.info(
-                    "Received MessageSavedEvent messageId={}, fromUserId={}, toUserId={}",
+                    "Received MessageSavedEvent messageId={}, senderId={}, recipientId={}",
                     eventDto.messageId(),
-                    eventDto.fromUserId(),
-                    eventDto.toUserId()
+                    eventDto.senderId(),
+                    eventDto.recipientId()
             );
 
             deliveryService.processMessageEvent(eventDto);
@@ -40,22 +35,22 @@ public class KafkaConsumerService {
             ack.acknowledge();
 
             log.info(
-                    "Successfully processed MessageSavedEvent messageId={}, fromUserId={}, toUserId={}",
+                    "Successfully processed MessageSavedEvent messageId={}, senderId={}, recipientId={}",
                     eventDto.messageId(),
-                    eventDto.fromUserId(),
-                    eventDto.toUserId()
+                    eventDto.senderId(),
+                    eventDto.recipientId()
             );
-
         } catch (Exception e) {
 
             log.error(
-                    "Failed to process MessageSavedEvent messageId={}, fromUserId={}, toUserId={}, error={}",
+                    "Failed to process MessageSavedEvent messageId={}, senderId={}, recipientId={}, error={}",
                     eventDto.messageId(),
-                    eventDto.fromUserId(),
-                    eventDto.toUserId(),
+                    eventDto.senderId(),
+                    eventDto.recipientId(),
                     e.getMessage(),
                     e
             );
+            throw new RuntimeException(e);
         }
     }
 }

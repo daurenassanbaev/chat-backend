@@ -7,8 +7,6 @@ import org.chat.shared.kafka.event.MessageDeliveredEvent;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
 
-import java.util.concurrent.ExecutionException;
-
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -16,22 +14,17 @@ public class KafkaProducerService {
 
     private final KafkaTemplate<String, MessageDeliveredEvent> kafkaTemplate;
 
-    public void sendDeliveredEvent(
-            MessageDeliveredEvent event
-    ) {
-
+    public void sendDeliveredEvent(MessageDeliveredEvent event) {
         kafkaTemplate.send(
                 KafkaTopics.CHAT_DELIVERED,
-                event.toUserId(),
+                event.recipientId().toString(),
                 event
         ).whenComplete((result, ex) -> {
-
             if (ex != null) {
-
                 log.error(
-                        "Failed to send MessageDeliveredEvent fromUserId={}, toUserId={}",
-                        event.fromUserId(),
-                        event.toUserId(),
+                        "Failed to send MessageDeliveredEvent senderId={}, recipientId={}",
+                        event.senderId(),
+                        event.recipientId(),
                         ex
                 );
 
@@ -39,9 +32,9 @@ public class KafkaProducerService {
             }
 
             log.info(
-                    "Sent MessageDeliveredEvent fromUserId={}, toUserId={}, partition={}, offset={}",
-                    event.fromUserId(),
-                    event.toUserId(),
+                    "Sent MessageDeliveredEvent senderId={}, recipientId={}, partition={}, offset={}",
+                    event.senderId(),
+                    event.recipientId(),
                     result.getRecordMetadata().partition(),
                     result.getRecordMetadata().offset()
             );

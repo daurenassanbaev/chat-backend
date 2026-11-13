@@ -1,7 +1,7 @@
 package org.messenger.deliverysvc.delivery.kafka.config;
 
 import org.apache.kafka.common.TopicPartition;
-import org.chat.shared.kafka.event.MessageDeliveredEvent;
+import org.chat.shared.kafka.event.MessageSavedEvent;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
@@ -16,9 +16,9 @@ import org.springframework.util.backoff.FixedBackOff;
 public class KafkaConsumerConfig {
 
     @Bean
-    public ConcurrentKafkaListenerContainerFactory<String, MessageDeliveredEvent> kafkaListenerContainerFactory
-            (ConsumerFactory<String, MessageDeliveredEvent> consumerFactory, DefaultErrorHandler errorHandler) {
-        ConcurrentKafkaListenerContainerFactory<String, MessageDeliveredEvent> factory = new ConcurrentKafkaListenerContainerFactory<>();
+    public ConcurrentKafkaListenerContainerFactory<String, MessageSavedEvent> kafkaListenerContainerFactory
+            (ConsumerFactory<String, MessageSavedEvent> consumerFactory, DefaultErrorHandler errorHandler) {
+        ConcurrentKafkaListenerContainerFactory<String, MessageSavedEvent> factory = new ConcurrentKafkaListenerContainerFactory<>();
 
         factory.setConsumerFactory(consumerFactory);
 

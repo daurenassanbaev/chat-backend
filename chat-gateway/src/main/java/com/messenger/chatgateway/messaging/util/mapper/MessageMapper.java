@@ -10,11 +10,17 @@ import java.util.UUID;
 @UtilityClass
 public class MessageMapper {
 
-    public MessageSentEvent toMessageSentEvent(String userId, UUID messageId, MessageDto messageDto) {
+    public MessageSentEvent toMessageSentEvent(
+            UUID userId,
+            UUID messageId,
+            UUID chatId,
+            MessageDto messageDto
+    ) {
         return MessageSentEvent.builder()
-                .fromUserId(userId)
+                .chatId(chatId)
+                .senderId(userId)
+                .recipientIds(messageDto.recipientIds())
                 .content(messageDto.text())
-                .toUserId(messageDto.toUserId())
                 .messageId(messageId)
                 .createdAt(Instant.now())
                 .build();

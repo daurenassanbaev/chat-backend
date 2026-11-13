@@ -21,17 +21,12 @@ public class KafkaConsumerService {
             groupId = "gateway-group",
             containerFactory = "kafkaListenerContainerFactory"
     )
-    public void listenDeliveredEvent(
-            MessageDeliveredEvent eventDto,
-            Acknowledgment ack
-    ) {
-
+    public void listenDeliveredEvent(MessageDeliveredEvent eventDto, Acknowledgment ack) {
         try {
-
             log.info(
-                    "Received MessageDeliveredEvent fromUserId={}, toUserId={}",
-                    eventDto.fromUserId(),
-                    eventDto.toUserId()
+                    "Received MessageDeliveredEvent senderId={}, recipientId={}",
+                    eventDto.senderId(),
+                    eventDto.recipientId()
             );
 
             chatService.sendMessage(eventDto);
@@ -39,20 +34,21 @@ public class KafkaConsumerService {
             ack.acknowledge();
 
             log.info(
-                    "Successfully processed MessageDeliveredEvent fromUserId={}, toUserId={}",
-                    eventDto.fromUserId(),
-                    eventDto.toUserId()
+                    "Successfully processed MessageDeliveredEvent senderId={}, recipientId={}",
+                    eventDto.senderId(),
+                    eventDto.recipientId()
             );
 
         } catch (Exception e) {
 
             log.error(
-                    "Failed to process MessageDeliveredEvent fromUserId={}, toUserId={}, error={}",
-                    eventDto.fromUserId(),
-                    eventDto.toUserId(),
+                    "Failed to process MessageDeliveredEvent senderId={}, recipientId={}, error={}",
+                    eventDto.senderId(),
+                    eventDto.recipientId(),
                     e.getMessage(),
                     e
             );
+            throw new RuntimeException(e);
         }
     }
 }

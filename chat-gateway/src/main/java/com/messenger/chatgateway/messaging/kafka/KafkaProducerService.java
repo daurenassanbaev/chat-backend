@@ -14,7 +14,7 @@ public class KafkaProducerService {
     private final KafkaTemplate<String, MessageSentEvent> kafkaTemplate;
 
     public void sendMessageSentEvent(MessageSentEvent eventDto) {
-        kafkaTemplate.send(KafkaTopics.CHAT_MESSAGES, eventDto.toUserId(), eventDto)
+        kafkaTemplate.send(KafkaTopics.CHAT_MESSAGES, eventDto.chatId().toString(), eventDto)
                 .whenComplete((result, ex) -> {
                     if (ex != null) {
                         log.error("Failed to send event: {}", eventDto.messageId(), ex);

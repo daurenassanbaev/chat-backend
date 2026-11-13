@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 import java.time.Duration;
 import java.util.Set;
 
+// TODO: ARCH - MAKE REDISSERVICE UNIVERSAL, NOT JUST FOR MessageDto
 @Service
 @RequiredArgsConstructor
 public class RedisService {
