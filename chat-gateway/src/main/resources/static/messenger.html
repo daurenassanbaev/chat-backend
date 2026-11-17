@@ -242,6 +242,8 @@
         .topbar-info { flex: 1; }
         .topbar-name { font-size: 15px; font-weight: 600; color: #fff; }
         .topbar-status { font-size: 12px; color: #6c7883; margin-top: 1px; transition: color 0.2s; }
+        .send-state { margin-left: 6px; font-size: 10px; color: #777; }
+        [data-state="failed"] .send-state { color: #b33; }
         .topbar-status.online { color: #4fae4e; }
 
         /* Refresh button */
@@ -540,6 +542,51 @@
     let pollInterval         = null;      // FIX: auto-refresh polling
     let lastKnownMessageId   = null;      // FIX: track last seen message to detect new ones
 
+    let chatGeneration = 0;
+    let historyRequestId = 0;
+    const outgoingMessages = new Map();
+
+    function markOutgoing(clientMessageId, state, messageId = null) {
+        const message = outgoingMessages.get(clientMessageId);
+        if (!message) return;
+        message.state = state;
+        if (messageId) message.messageId = messageId;
+        const row = document.querySelector(`[data-client-id="${clientMessageId}"]`);
+        if (!row) return;
+        if (messageId) {
+            const stored = document.querySelector(`[data-msg-id="${messageId}"]`);
+            if (stored && stored !== row) {
+                outgoingMessages.delete(clientMessageId);
+                row.remove();
+                return;
+            }
+            row.dataset.msgId = messageId;
+        }
+        row.dataset.state = state;
+        const status = row.querySelector('.send-state');
+        if (status) status.textContent = {sending: 'Отправляется…', queued: 'В очереди', failed: 'Не отправлено'}[state];
+    }
+
+    function renderOutgoing(message) {
+        if (message.chatId !== activeChatId) return;
+        const persisted = message.messageId && document.querySelector(`[data-msg-id="${message.messageId}"]`);
+        if (persisted && !persisted.dataset.clientId) {
+            outgoingMessages.delete(message.clientMessageId);
+            return;
+        }
+        appendMessage(message.text, 'sent', message.createdAt, message.messageId || message.clientMessageId);
+        const row = document.querySelector(`[data-msg-id="${message.messageId || message.clientMessageId}"]`);
+        if (!row) return;
+        row.dataset.clientId = message.clientMessageId;
+        let status = row.querySelector('.send-state');
+        if (!status) {
+            status = document.createElement('span');
+            status.className = 'send-state';
+            row.querySelector('.bubble-meta').appendChild(status);
+        }
+        markOutgoing(message.clientMessageId, message.state, message.messageId);
+    }
+
     // ── Helpers ──────────────────────────────────────────────────
 
     function autoResize(el) {
@@ -596,13 +643,16 @@
 
             onConnect: () => {
                 connected = true;
+                clearInterval(heartbeatInterval);
 
                 stompClient.subscribe('/user/queue/errors', (frame) => {
                     const error = JSON.parse(frame.body);
-                    const row = document.querySelector(`[data-client-id="${error.clientMessageId}"]`);
-                    if (row) row.dataset.state = 'failed';
-                    document.getElementById('peerStatus').textContent = 'Не отправлено';
+                    markOutgoing(error.clientMessageId, 'failed');
                     console.warn(error.reason);
+                });
+                stompClient.subscribe('/user/queue/send-results', (frame) => {
+                    const result = JSON.parse(frame.body);
+                    markOutgoing(result.clientMessageId, 'queued', result.messageId);
                 });
                 stompClient.subscribe('/user/queue/messages' , (frame) => {
                     try {
@@ -634,6 +684,11 @@
 
             onStompError:    (f) => console.error('STOMP error', f),
             onWebSocketError:(e) => console.error('WS error', e),
+            onWebSocketClose: () => {
+                connected = false;
+                clearInterval(heartbeatInterval);
+                heartbeatInterval = null;
+            },
         });
 
         stompClient.activate();
@@ -703,6 +758,8 @@
     // ── Open chat ─────────────────────────────────────────────────
 
     async function openChat(chatId, peerId) {
+        const generation = ++chatGeneration;
+        clearInterval(pollInterval);
         activeChatId = chatId;
         activePeerId = peerId;
 
@@ -723,6 +780,7 @@
         lastKnownMessageId = null;
 
         await loadMessages(chatId);
+        if (generation !== chatGeneration) return;
         if (connected && peerId) subscribeToPresence(peerId);
 
         // FIX: start polling for new messages every 5s
@@ -730,17 +788,26 @@
     }
 
     async function loadMessages(chatId) {
+        const requestId = ++historyRequestId;
+        const generation = chatGeneration;
         try {
             const res  = await fetch(`${MSG_SVC}/chats/${chatId}/messages?page=0&size=30`, { headers: { 'user-id': currentUser } });
             if (!res.ok) throw new Error(`Failed to load messages: ${res.status}`);
             const data = await res.json();
+            if (requestId !== historyRequestId || generation !== chatGeneration || activeChatId !== chatId) return;
             const msgs = (data.content ?? []).reverse();
             msgs.forEach(m => {
                 appendMessage(m.content, m.senderId === currentUser ? 'sent' : 'received', m.createdAt, m.id);
             });
             if (msgs.length > 0) lastKnownMessageId = msgs[msgs.length - 1].id;
+            outgoingMessages.forEach(renderOutgoing);
             setPeerStatus('last seen recently');
-        } catch (e) { console.error('Failed to load messages', e); setPeerStatus('error'); }
+        } catch (e) {
+            if (requestId !== historyRequestId || generation !== chatGeneration || activeChatId !== chatId) return;
+            console.error('Failed to load messages', e);
+            outgoingMessages.forEach(renderOutgoing);
+            setPeerStatus('error');
+        }
     }
 
     // ── Manual refresh ────────────────────────────────────────────
@@ -760,12 +827,18 @@
 
     function startPolling(chatId, peerId) {
         if (pollInterval) clearInterval(pollInterval);
+        const generation = chatGeneration;
+        let inFlight = false;
         pollInterval = setInterval(async () => {
+            if (generation !== chatGeneration || inFlight) return;
+            inFlight = true;
+            const requestId = ++historyRequestId;
             if (activeChatId !== chatId) { clearInterval(pollInterval); return; }
             try {
                 const res  = await fetch(`${MSG_SVC}/chats/${chatId}/messages?page=0&size=30`, { headers: { 'user-id': currentUser } });
                 if (!res.ok) return;
                 const data = await res.json();
+                if (requestId !== historyRequestId || generation !== chatGeneration || activeChatId !== chatId) return;
                 const msgs = (data.content ?? []).reverse();
                 if (!msgs.length) return;
 
@@ -786,7 +859,8 @@
                 // Update sidebar preview
                 const last = newMsgs[newMsgs.length - 1];
                 if (last) upsertChatPreview(chatId, peerId, last.content, last.createdAt);
-            } catch (e) { /* silent */ }
+            } catch (e) { console.warn('Message refresh failed', e); }
+            finally { inFlight = false; }
         }, 5000);
     }
 
@@ -847,11 +921,19 @@
         if (!stompClient?.connected || !text || !activeChatId) return;
 
         const clientMessageId = crypto.randomUUID();
-        stompClient.publish({
-            destination: '/app/chat',
-            headers: { 'user-id': currentUser },
-            body: JSON.stringify({ chatId: activeChatId, text, clientMessageId }),
-        });
+        const message = {clientMessageId, chatId: activeChatId, text,
+            createdAt: new Date().toISOString(), state: 'sending'};
+        outgoingMessages.set(clientMessageId, message);
+        renderOutgoing(message);
+        try {
+            stompClient.publish({
+                destination: '/app/chat',
+                headers: {'user-id': currentUser},
+                body: JSON.stringify({chatId: activeChatId, text, clientMessageId}),
+            });
+        } catch (error) {
+            markOutgoing(clientMessageId, 'failed');
+        }
 
         upsertChatPreview(activeChatId, activePeerId, text);
         textarea.value = '';
@@ -863,7 +945,16 @@
     // FIX: added optional id param to track last known message
     function appendMessage(text, type, time, id) {
         const container = document.getElementById('messages');
-        if (id && container.querySelector(`[data-msg-id="${id}"]`)) return;
+        const existing = id && container.querySelector(`[data-msg-id="${id}"]`);
+        if (existing) {
+            if (existing.dataset.clientId) {
+                outgoingMessages.delete(existing.dataset.clientId);
+                delete existing.dataset.clientId;
+                delete existing.dataset.state;
+                existing.querySelector('.send-state')?.remove();
+            }
+            return;
+        }
         const row    = document.createElement('div');
         row.classList.add('msg-row', type);
         if (id) row.dataset.msgId = id;

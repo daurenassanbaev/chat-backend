@@ -50,13 +50,15 @@ class ChatGatewayIntegrationTests extends KafkaRedisIntegrationTest {
     }
 
     @Test
-    void acceptsChatMessageAndPublishesItToKafka() {
+    void acceptsChatMessageAndPublishesItToKafka() throws Exception {
         UUID chatId = UUID.randomUUID();
         UUID recipientId = UUID.randomUUID();
         String text = "gateway integration " + UUID.randomUUID();
+        UUID clientId = UUID.randomUUID();
+        String senderId = UUID.randomUUID().toString();
 
         try (KafkaRecordReader records = new KafkaRecordReader()) {
-            chatService.processMessage(new MessageDto(chatId, List.of(recipientId), text), UUID.randomUUID().toString());
+            chatService.processMessage(new MessageDto(chatId, List.of(recipientId), text, clientId), senderId);
 
             String sent = records.awaitValue(
                     KafkaTopics.CHAT_MESSAGES,
@@ -64,6 +66,9 @@ class ChatGatewayIntegrationTests extends KafkaRedisIntegrationTest {
                     Duration.ofSeconds(20)
             );
             assertThat(sent).contains(chatId.toString()).contains(recipientId.toString());
+            UUID serverId = UUID.fromString(objectMapper.readTree(sent).get("messageId").asText());
+            verify(messagingTemplate, timeout(5000)).convertAndSendToUser(eq(senderId), eq("/queue/send-results"),
+                    eq(new com.messenger.chatgateway.messaging.dto.SendAccepted(clientId, serverId)));
         }
     }
 

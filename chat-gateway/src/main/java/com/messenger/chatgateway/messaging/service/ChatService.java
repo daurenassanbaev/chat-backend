@@ -39,6 +39,9 @@ public class ChatService {
                 if (error != null) {
                     reportSendFailure(userId, messageDto.clientMessageId(), error);
                 } else {
+                    messagingTemplate.convertAndSendToUser(userId, "/queue/send-results",
+                            new com.messenger.chatgateway.messaging.dto.SendAccepted(
+                                    messageDto.clientMessageId(), eventDto.messageId()));
                     log.info("Message queued in Kafka: {}", eventDto.messageId());
                 }
             });
