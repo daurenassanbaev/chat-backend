@@ -20,7 +20,6 @@ public class StompSubscribeListener {
 
     private static final String MESSAGES_DESTINATION = "/user/queue/messages";
 
-    private final RedisService redisService;
     private final ChatService chatService;
     private final OfflineMessageService offlineMessageService;
 
@@ -34,7 +33,6 @@ public class StompSubscribeListener {
 
         offlineMessageService.readPending(userId).forEach(chatService::sendMessage);
 
-        redisService.setTtl(ONLINE_KEY.formatted(userId), Duration.ofSeconds(60));
     }
 
 }

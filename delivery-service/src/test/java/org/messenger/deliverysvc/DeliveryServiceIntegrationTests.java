@@ -31,7 +31,7 @@ class DeliveryServiceIntegrationTests extends KafkaRedisIntegrationTest {
     @Test
     void onlineRecipientReceivesDeliveredEventOnKafka() throws Exception {
         MessageSavedEvent event = event();
-        redisTemplate.opsForValue().set(RedisConstants.ONLINE_KEY.formatted(event.recipientId()), "online");
+        redisTemplate.opsForZSet().add(RedisConstants.PRESENCE_SESSIONS_KEY.formatted(event.recipientId()), "session", System.currentTimeMillis() + 60000);
 
         try (KafkaRecordReader records = new KafkaRecordReader()) {
             kafkaTemplate.send(KafkaTopics.CHAT_PROCESSED, event.recipientId().toString(), event)
@@ -68,7 +68,7 @@ class DeliveryServiceIntegrationTests extends KafkaRedisIntegrationTest {
     @Test
     void failedOutgoingSendRetriesTheIncomingRecord() throws Exception {
         var event = event();
-        redisTemplate.opsForValue().set(RedisConstants.ONLINE_KEY.formatted(event.recipientId()), "1");
+        redisTemplate.opsForZSet().add(RedisConstants.PRESENCE_SESSIONS_KEY.formatted(event.recipientId()), "session", System.currentTimeMillis() + 60000);
         var attempts = new java.util.concurrent.atomic.AtomicInteger();
         org.mockito.Mockito.doAnswer(invocation -> {
             Object value = invocation.getArgument(2);

@@ -582,13 +582,10 @@
 
     // ── STOMP ─────────────────────────────────────────────────────
 
-    async function sendHeartbeat() {
-        try {
-            await fetch(`${GW_SVC}/presence/heartbeat`, {
-                method: 'POST',
-                headers: { 'user-id': currentUser },
-            });
-        } catch (e) { console.warn('Heartbeat failed', e); }
+    function sendHeartbeat() {
+        if (stompClient?.connected) {
+            stompClient.publish({destination: '/app/presence/heartbeat', body: '{}'});
+        }
     }
 
     function connectStomp() {

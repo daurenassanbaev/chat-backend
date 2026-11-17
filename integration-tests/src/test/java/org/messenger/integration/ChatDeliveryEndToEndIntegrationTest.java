@@ -74,8 +74,8 @@ class ChatDeliveryEndToEndIntegrationTest extends PostgresKafkaRedisIntegrationT
         UUID chatId = UUID.fromString(chat.get("chatId").asText());
         String body = "e2e message " + UUID.randomUUID();
 
-        chatGateway.getBean(RedisService.class).addWithTtl(
-                RedisConstants.ONLINE_KEY.formatted(recipientId), "online", Duration.ofMinutes(1));
+        chatGateway.getBean(com.messenger.chatgateway.presence.service.PresenceService.class)
+                .heartbeat(recipientId.toString(), "test-session");
         try (KafkaRecordReader records = new KafkaRecordReader()) {
             chatGateway.getBean(ChatService.class).processMessage(
                     new MessageDto(chatId, List.of(recipientId), body), senderId.toString());

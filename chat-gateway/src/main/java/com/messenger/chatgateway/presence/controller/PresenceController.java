@@ -1,29 +1,18 @@
 package com.messenger.chatgateway.presence.controller;
 
-import com.messenger.chatgateway.caching.service.RedisService;
+import com.messenger.chatgateway.presence.service.PresenceService;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestHeader;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
- 
-import java.time.Duration;
- 
-import static org.chat.shared.caching.RedisConstants.ONLINE_KEY;
- 
-@RestController
-@RequestMapping("/presence")
+import org.springframework.messaging.handler.annotation.Header;
+import org.springframework.messaging.handler.annotation.MessageMapping;
+import org.springframework.stereotype.Controller;
+import java.security.Principal;
+
+@Controller
 @RequiredArgsConstructor
-@Slf4j
 public class PresenceController {
- 
-    private final RedisService redisService;
- 
-    @PostMapping("/heartbeat")
-    public void heartbeat(@RequestHeader("user-id") String userId) {
-        redisService.setTtl(ONLINE_KEY.formatted(userId), Duration.ofSeconds(60));
+    private final PresenceService presenceService;
+    @MessageMapping("/presence/heartbeat")
+    public void heartbeat(Principal principal, @Header("simpSessionId") String sessionId) {
+        presenceService.heartbeat(principal.getName(), sessionId);
     }
- 
 }
- 

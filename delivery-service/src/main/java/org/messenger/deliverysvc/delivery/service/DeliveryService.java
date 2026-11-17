@@ -21,7 +21,6 @@ import static org.chat.shared.caching.RedisConstants.*;
 public class DeliveryService {
 
     private final KafkaProducerService producerService;
-    private final RedisService redisService;
 
     private final ObjectMapper objectMapper;
     private final StringRedisTemplate redis;
@@ -35,7 +34,9 @@ public class DeliveryService {
         } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
             throw new IllegalArgumentException("Cannot serialize pending message", e);
         }
-        if (redisService.get(ONLINE_KEY.formatted(eventDto.recipientId())) != null) {
+        Long active = redis.opsForZSet().count(PRESENCE_SESSIONS_KEY.formatted(eventDto.recipientId()),
+                System.currentTimeMillis() + 1d, Double.POSITIVE_INFINITY);
+        if (active != null && active > 0) {
             producerService.sendDeliveredEvent(delivered);
         }
     }
