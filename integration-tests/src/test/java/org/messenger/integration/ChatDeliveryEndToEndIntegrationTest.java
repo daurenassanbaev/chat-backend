@@ -2,23 +2,25 @@ package org.messenger.integration;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.awaitility.Awaitility;
-import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.Test;
 import com.messenger.chatgateway.ChatGatewayApplication;
 import com.messenger.chatgateway.messaging.dto.MessageDto;
 import com.messenger.chatgateway.messaging.service.ChatService;
-import com.messenger.chatgateway.caching.service.RedisService;
-import org.chat.shared.caching.RedisConstants;
+import com.messenger.chatgateway.offline.service.MessageAckService;
+import com.messenger.chatgateway.offline.service.OfflineMessageService;
+import com.messenger.chatgateway.presence.service.PresenceService;
+import org.awaitility.Awaitility;
 import org.chat.shared.kafka.constants.KafkaTopics;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
 import org.messenger.deliverysvc.DeliveryServiceApplication;
 import org.messenger.messagesvc.MessageServiceApplication;
-import org.messenger.messagesvc.status.entity.MessageStatus;
 import org.messenger.messagesvc.message.repository.MessageRepository;
 import org.messenger.messagesvc.outbox.repository.OutboxRepository;
+import org.messenger.messagesvc.status.entity.MessageStatus;
 import org.messenger.testsupport.KafkaRecordReader;
 import org.messenger.testsupport.PostgresKafkaRedisIntegrationTest;
+import org.messenger.testsupport.StompTestClient;
 import org.springframework.boot.WebApplicationType;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.context.ConfigurableApplicationContext;
@@ -29,9 +31,11 @@ import org.springframework.http.MediaType;
 import org.springframework.web.client.RestTemplate;
 
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -74,7 +78,7 @@ class ChatDeliveryEndToEndIntegrationTest extends PostgresKafkaRedisIntegrationT
         UUID chatId = UUID.fromString(chat.get("chatId").asText());
         String body = "e2e message " + UUID.randomUUID();
 
-        chatGateway.getBean(com.messenger.chatgateway.presence.service.PresenceService.class)
+        chatGateway.getBean(PresenceService.class)
                 .heartbeat(recipientId.toString(), "test-session");
         try (KafkaRecordReader records = new KafkaRecordReader()) {
             chatGateway.getBean(ChatService.class).processMessage(
@@ -88,9 +92,9 @@ class ChatDeliveryEndToEndIntegrationTest extends PostgresKafkaRedisIntegrationT
             assertThat(deliveredEvent).contains(chatId.toString()).contains(recipientId.toString());
         }
 
-        var pending = chatGateway.getBean(com.messenger.chatgateway.offline.service.OfflineMessageService.class)
+        var pending = chatGateway.getBean(OfflineMessageService.class)
                 .readPending(recipientId.toString());
-        chatGateway.getBean(com.messenger.chatgateway.offline.service.MessageAckService.class)
+        chatGateway.getBean(MessageAckService.class)
                 .acknowledge(recipientId.toString(), pending.getFirst().messageId());
 
         MessageRepository messages = messageService.getBean(MessageRepository.class);
@@ -115,11 +119,11 @@ class ChatDeliveryEndToEndIntegrationTest extends PostgresKafkaRedisIntegrationT
         UUID chatId = UUID.fromString(createDirectChat(sender, recipient).get("chatId").asText());
         chatGateway.getBean(ChatService.class).processMessage(
                 new MessageDto(chatId, List.of(recipient), "offline-reconnect"), sender.toString());
-        var pending = chatGateway.getBean(com.messenger.chatgateway.offline.service.OfflineMessageService.class);
+        var pending = chatGateway.getBean(OfflineMessageService.class);
         Awaitility.await().atMost(Duration.ofSeconds(25)).untilAsserted(() ->
                 assertThat(pending.readPending(recipient.toString())).hasSize(1));
         UUID messageId = pending.readPending(recipient.toString()).getFirst().messageId();
-        try (var client = new org.messenger.testsupport.StompTestClient(port(chatGateway), recipient.toString())) {
+        try (var client = new StompTestClient(port(chatGateway), recipient.toString())) {
             client.subscribe();
             assertThat(client.receive(Duration.ofSeconds(10))).contains(messageId.toString());
             // Deliberately disconnect without application ACK.
@@ -127,7 +131,7 @@ class ChatDeliveryEndToEndIntegrationTest extends PostgresKafkaRedisIntegrationT
         assertThat(pending.readPending(recipient.toString())).hasSize(1);
         assertThat(messageService.getBean(MessageRepository.class).findById(messageId).orElseThrow().getStatus())
                 .isEqualTo(MessageStatus.SENT);
-        try (var client = new org.messenger.testsupport.StompTestClient(port(chatGateway), recipient.toString())) {
+        try (var client = new StompTestClient(port(chatGateway), recipient.toString())) {
             client.subscribe();
             assertThat(client.receive(Duration.ofSeconds(10))).contains(messageId.toString());
             client.send("/app/messages/ack", "{\"messageId\":\"" + messageId + "\"}");
@@ -165,7 +169,7 @@ class ChatDeliveryEndToEndIntegrationTest extends PostgresKafkaRedisIntegrationT
                 .web(web ? WebApplicationType.SERVLET : WebApplicationType.NONE);
         List<String> arguments = properties.entrySet().stream()
                 .map(entry -> "--" + entry.getKey() + "=" + entry.getValue())
-                .collect(java.util.stream.Collectors.toCollection(java.util.ArrayList::new));
+                .collect(Collectors.toCollection(ArrayList::new));
         arguments.add("--spring.config.location=classpath:/" + configFile);
         if (web) {
             arguments.add("--server.port=0");

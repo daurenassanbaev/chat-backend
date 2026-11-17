@@ -1,11 +1,17 @@
 package org.messenger.messagesvc;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.messenger.messagesvc.message.repository.MessageRepository;
+import org.springframework.data.jpa.repository.Query;
 import org.testcontainers.postgresql.PostgreSQLContainer;
-import java.sql.*;
+
+import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
+import java.sql.*;
 import java.util.*;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 @Tag("benchmark")
@@ -20,7 +26,7 @@ class ChatQueriesBenchmarkTests {
                 for (String migration : List.of("V20260818180000__create_users.sql",
                         "V20260818180100__create_chats.sql", "V20260818180300__create_messages.sql")) {
                     try (var resource = getClass().getResourceAsStream("/db/migration/" + migration)) {
-                        sql.execute(new String(Objects.requireNonNull(resource).readAllBytes(), java.nio.charset.StandardCharsets.UTF_8));
+                        sql.execute(new String(Objects.requireNonNull(resource).readAllBytes(), StandardCharsets.UTF_8));
                     }
                 }
                 sql.execute("INSERT INTO users(id) VALUES (md5('user')::uuid)");
@@ -47,9 +53,9 @@ class ChatQueriesBenchmarkTests {
                 String before = "SELECT * FROM messages" + filter + " ORDER BY created_at DESC";
                 String after = "SELECT DISTINCT ON (chat_id) * FROM messages" + filter
                         + " ORDER BY chat_id, created_at DESC, id DESC";
-                String lateral = org.messenger.messagesvc.message.repository.MessageRepository.class
+                String lateral = MessageRepository.class
                         .getMethod("findLatestForChats", List.class)
-                        .getAnnotation(org.springframework.data.jpa.repository.Query.class).value()
+                        .getAnnotation(Query.class).value()
                         .replace(":chatIds", String.join(",", ids));
                 var beforePlans = plans(sql, before);
                 sql.execute("CREATE INDEX idx_messages_chat_created_id ON messages(chat_id,created_at DESC,id DESC)");
@@ -57,13 +63,13 @@ class ChatQueriesBenchmarkTests {
                 var distinctPlans = plans(sql, after);
                 var lateralPlans = plans(sql, lateral);
                 for (String plan : lateralPlans) {
-                    org.junit.jupiter.api.Assertions.assertTrue(plan.contains("Index Scan using idx_messages_chat_created_id"),
+                    Assertions.assertTrue(plan.contains("Index Scan using idx_messages_chat_created_id"),
                             "LATERAL should use the existing composite index: " + plan);
                 }
                 var expected = messageIds(sql, after);
                 var actual = messageIds(sql, lateral);
-                org.junit.jupiter.api.Assertions.assertEquals(20, actual.size());
-                org.junit.jupiter.api.Assertions.assertEquals(expected, actual);
+                Assertions.assertEquals(20, actual.size());
+                Assertions.assertEquals(expected, actual);
                 String report = """
                         # getChats: было / DISTINCT ON / LATERAL
 
@@ -129,7 +135,7 @@ class ChatQueriesBenchmarkTests {
     }
     private String summary(String name, int rows, List<String> plans) {
         var times = plans.stream().map(plan -> {
-            var matcher = java.util.regex.Pattern.compile("Execution Time: ([0-9.]+) ms").matcher(plan);
+            var matcher = Pattern.compile("Execution Time: ([0-9.]+) ms").matcher(plan);
             if (!matcher.find()) throw new IllegalArgumentException("No execution time: " + plan);
             return Double.parseDouble(matcher.group(1));
         }).toList();

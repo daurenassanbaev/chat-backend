@@ -4,10 +4,13 @@ import org.messenger.messagesvc.message.entity.Message;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.util.List;
-import java.util.UUID;
 import java.util.Optional;
+import java.util.UUID;
 
 public interface MessageRepository extends JpaRepository<Message, UUID> {
 
@@ -18,14 +21,14 @@ public interface MessageRepository extends JpaRepository<Message, UUID> {
     long countByChatId(UUID chatId);
 
     Optional<Message> findByIdAndChatId(UUID id, UUID chatId);
-    @org.springframework.data.jpa.repository.Modifying
-    @org.springframework.data.jpa.repository.Query(value = """
+    @Modifying
+    @Query(value = """
             UPDATE messages SET status = 'DELIVERED'
             WHERE id = :id AND chat_id = :chatId AND status = 'SENT'
             """, nativeQuery = true)
-    int markDelivered(@org.springframework.data.repository.query.Param("id") UUID id,
-                      @org.springframework.data.repository.query.Param("chatId") UUID chatId);
-    @org.springframework.data.jpa.repository.Query(value = """
+    int markDelivered(@Param("id") UUID id,
+                      @Param("chatId") UUID chatId);
+    @Query(value = """
             SELECT latest.*
             FROM chats c
             CROSS JOIN LATERAL (
@@ -36,5 +39,5 @@ public interface MessageRepository extends JpaRepository<Message, UUID> {
             ) latest
             WHERE c.id IN (:chatIds)
             """, nativeQuery = true)
-    List<Message> findLatestForChats(@org.springframework.data.repository.query.Param("chatIds") List<UUID> chatIds);
+    List<Message> findLatestForChats(@Param("chatIds") List<UUID> chatIds);
 }

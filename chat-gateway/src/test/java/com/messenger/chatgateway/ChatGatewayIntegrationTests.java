@@ -1,14 +1,25 @@
 package com.messenger.chatgateway;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.messenger.chatgateway.messaging.dto.MessageDto;
+import com.messenger.chatgateway.messaging.dto.SendAccepted;
+import com.messenger.chatgateway.messaging.dto.SendError;
+import com.messenger.chatgateway.messaging.kafka.KafkaProducerService;
+import com.messenger.chatgateway.messaging.service.ChatService;
+import com.messenger.chatgateway.offline.service.MessageAckService;
+import org.assertj.core.api.Assertions;
+import org.chat.shared.caching.RedisConstants;
 import org.chat.shared.kafka.constants.KafkaTopics;
 import org.chat.shared.kafka.event.MessageDeliveredEvent;
 import org.junit.jupiter.api.Test;
-import com.messenger.chatgateway.messaging.dto.MessageDto;
-import com.messenger.chatgateway.messaging.service.ChatService;
 import org.messenger.testsupport.KafkaRecordReader;
 import org.messenger.testsupport.KafkaRedisIntegrationTest;
+import org.mockito.ArgumentMatchers;
+import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
@@ -16,9 +27,8 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
-
-import org.springframework.kafka.core.KafkaTemplate;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.eq;
@@ -38,7 +48,7 @@ class ChatGatewayIntegrationTests extends KafkaRedisIntegrationTest {
     private SimpMessagingTemplate messagingTemplate;
 
     @Autowired
-    private com.fasterxml.jackson.databind.ObjectMapper objectMapper;
+    private ObjectMapper objectMapper;
 
     @Test
     void readsOfflineJsonWithInstant() throws Exception {
@@ -68,7 +78,7 @@ class ChatGatewayIntegrationTests extends KafkaRedisIntegrationTest {
             assertThat(sent).contains(chatId.toString()).contains(recipientId.toString());
             UUID serverId = UUID.fromString(objectMapper.readTree(sent).get("messageId").asText());
             verify(messagingTemplate, timeout(5000)).convertAndSendToUser(eq(senderId), eq("/queue/send-results"),
-                    eq(new com.messenger.chatgateway.messaging.dto.SendAccepted(clientId, serverId)));
+                    eq(new SendAccepted(clientId, serverId)));
         }
     }
 
@@ -94,28 +104,28 @@ class ChatGatewayIntegrationTests extends KafkaRedisIntegrationTest {
         );
     }
     @MockitoSpyBean
-    private com.messenger.chatgateway.messaging.kafka.KafkaProducerService producer;
+    private KafkaProducerService producer;
 
     @Test
     void reportsSynchronousAndAsynchronousSendErrors() {
         for (boolean synchronous : List.of(true, false)) {
             UUID clientId = UUID.randomUUID();
             String user = UUID.randomUUID().toString();
-            org.mockito.Mockito.doAnswer(invocation -> {
+            Mockito.doAnswer(invocation -> {
                 if (synchronous) throw new IllegalStateException("sync failure");
-                return java.util.concurrent.CompletableFuture.failedFuture(new IllegalStateException("async failure"));
-            }).when(producer).sendMessageSentEvent(org.mockito.ArgumentMatchers.any());
+                return CompletableFuture.failedFuture(new IllegalStateException("async failure"));
+            }).when(producer).sendMessageSentEvent(ArgumentMatchers.any());
             chatService.processMessage(new MessageDto(UUID.randomUUID(), List.of(), "test", clientId), user);
             verify(messagingTemplate).convertAndSendToUser(eq(user), eq("/queue/errors"),
-                    org.mockito.ArgumentMatchers.argThat(value -> value instanceof
-                            com.messenger.chatgateway.messaging.dto.SendError error
+                    ArgumentMatchers.argThat(value -> value instanceof
+                            SendError error
                             && clientId.equals(error.clientMessageId())));
         }
     }
     @Autowired
-    private org.springframework.data.redis.core.StringRedisTemplate redis;
+    private StringRedisTemplate redis;
     @Autowired
-    private com.messenger.chatgateway.offline.service.MessageAckService ackService;
+    private MessageAckService ackService;
 
     @Test
     void failedAckPublicationKeepsPendingMessage() throws Exception {
@@ -123,16 +133,16 @@ class ChatGatewayIntegrationTests extends KafkaRedisIntegrationTest {
         UUID id = UUID.randomUUID();
         var event = new MessageDeliveredEvent(id, UUID.randomUUID(), UUID.randomUUID(), recipient,
                 "pending", Instant.now());
-        String key = org.chat.shared.caching.RedisConstants.OFFLINE_KEY.formatted(recipient);
+        String key = RedisConstants.OFFLINE_KEY.formatted(recipient);
         redis.opsForHash().put(key, id.toString(), objectMapper.writeValueAsString(event));
-        org.mockito.Mockito.doAnswer(call -> {
+        Mockito.doAnswer(call -> {
             if (KafkaTopics.CHAT_RECEIVED.equals(call.getArgument(0))) {
-                return java.util.concurrent.CompletableFuture.failedFuture(new IllegalStateException("Kafka down"));
+                return CompletableFuture.failedFuture(new IllegalStateException("Kafka down"));
             }
             return call.callRealMethod();
-        }).when(kafkaTemplate).send(org.mockito.ArgumentMatchers.anyString(),
-                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
-        org.assertj.core.api.Assertions.assertThatThrownBy(() -> ackService.acknowledge(recipient.toString(), id))
+        }).when(kafkaTemplate).send(ArgumentMatchers.anyString(),
+                ArgumentMatchers.any(), ArgumentMatchers.any());
+        Assertions.assertThatThrownBy(() -> ackService.acknowledge(recipient.toString(), id))
                 .isInstanceOf(IllegalStateException.class);
         assertThat(redis.opsForHash().hasKey(key, id.toString())).isTrue();
     }

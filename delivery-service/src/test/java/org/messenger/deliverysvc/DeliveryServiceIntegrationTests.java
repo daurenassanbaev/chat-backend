@@ -1,28 +1,36 @@
 package org.messenger.deliverysvc;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.awaitility.Awaitility;
 import org.chat.shared.caching.RedisConstants;
 import org.chat.shared.kafka.constants.KafkaTopics;
+import org.chat.shared.kafka.event.MessageDeliveredEvent;
 import org.chat.shared.kafka.event.MessageSavedEvent;
 import org.junit.jupiter.api.Test;
+import org.messenger.deliverysvc.delivery.service.DeliveryService;
 import org.messenger.testsupport.KafkaRecordReader;
 import org.messenger.testsupport.KafkaRedisIntegrationTest;
+import org.mockito.ArgumentMatchers;
+import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest
 class DeliveryServiceIntegrationTests extends KafkaRedisIntegrationTest {
 
-    @org.springframework.test.context.bean.override.mockito.MockitoSpyBean(name = "kafkaTemplate")
+    @MockitoSpyBean(name = "kafkaTemplate")
     private KafkaTemplate kafkaTemplate;
 
     @Autowired
@@ -69,20 +77,20 @@ class DeliveryServiceIntegrationTests extends KafkaRedisIntegrationTest {
     void failedOutgoingSendRetriesTheIncomingRecord() throws Exception {
         var event = event();
         redisTemplate.opsForZSet().add(RedisConstants.PRESENCE_SESSIONS_KEY.formatted(event.recipientId()), "session", System.currentTimeMillis() + 60000);
-        var attempts = new java.util.concurrent.atomic.AtomicInteger();
-        org.mockito.Mockito.doAnswer(invocation -> {
+        var attempts = new AtomicInteger();
+        Mockito.doAnswer(invocation -> {
             Object value = invocation.getArgument(2);
             if (KafkaTopics.CHAT_DELIVERED.equals(invocation.getArgument(0))
-                    && value instanceof org.chat.shared.kafka.event.MessageDeliveredEvent delivered
+                    && value instanceof MessageDeliveredEvent delivered
                     && event.messageId().equals(delivered.messageId())) {
                 if (attempts.incrementAndGet() == 1) {
-                    return java.util.concurrent.CompletableFuture.failedFuture(
+                    return CompletableFuture.failedFuture(
                             new IllegalStateException("Injected asynchronous producer failure"));
                 }
             }
             return invocation.callRealMethod();
-        }).when(kafkaTemplate).send(org.mockito.ArgumentMatchers.anyString(),
-                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+        }).when(kafkaTemplate).send(ArgumentMatchers.anyString(),
+                ArgumentMatchers.any(), ArgumentMatchers.any());
         try (var records = new KafkaRecordReader()) {
             kafkaTemplate.send(KafkaTopics.CHAT_PROCESSED, event.recipientId().toString(), event)
                     .get(10, TimeUnit.SECONDS);
@@ -117,8 +125,8 @@ class DeliveryServiceIntegrationTests extends KafkaRedisIntegrationTest {
     }
 
     @Autowired
-    private org.messenger.deliverysvc.delivery.service.DeliveryService deliveryService;
-    private org.messenger.deliverysvc.delivery.service.DeliveryService applicationService() {
+    private DeliveryService deliveryService;
+    private DeliveryService applicationService() {
         return deliveryService;
     }
 
@@ -126,7 +134,7 @@ class DeliveryServiceIntegrationTests extends KafkaRedisIntegrationTest {
     void existingListIsMigratedWithoutDroppingMessages() throws Exception {
         var old = event();
         String key = RedisConstants.OFFLINE_KEY.formatted(old.recipientId());
-        var mapper = new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules();
+        var mapper = new ObjectMapper().findAndRegisterModules();
         redisTemplate.opsForList().rightPush(key, mapper.writeValueAsString(old));
         var next = new MessageSavedEvent(UUID.randomUUID(), old.chatId(), old.senderId(), old.recipientId(),
                 "next", Instant.now());

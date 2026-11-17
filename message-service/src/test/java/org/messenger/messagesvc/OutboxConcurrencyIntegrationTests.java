@@ -1,25 +1,33 @@
 package org.messenger.messagesvc;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.chat.shared.kafka.event.MessageSavedEvent;
 import org.chat.shared.kafka.constants.KafkaTopics;
+import org.chat.shared.kafka.event.MessageSavedEvent;
 import org.junit.jupiter.api.Test;
+import org.messenger.messagesvc.message.kafka.KafkaProducerService;
 import org.messenger.messagesvc.outbox.entity.OutboxEvent;
 import org.messenger.messagesvc.outbox.repository.OutboxRepository;
 import org.messenger.messagesvc.outbox.service.OutboxService;
-import org.messenger.messagesvc.message.kafka.KafkaProducerService;
+import org.messenger.testsupport.KafkaRecordReader;
 import org.messenger.testsupport.PostgresKafkaRedisIntegrationTest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.core.io.ClassPathResource;
+import org.springframework.jdbc.datasource.init.ResourceDatabasePopulator;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
-import java.util.UUID;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.*;
+import javax.sql.DataSource;
+
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.*;
 
 @SpringBootTest(properties = {"outbox.batch-size=2", "outbox.initial-delay-ms=3600000"})
 class OutboxConcurrencyIntegrationTests extends PostgresKafkaRedisIntegrationTest {
@@ -27,13 +35,13 @@ class OutboxConcurrencyIntegrationTests extends PostgresKafkaRedisIntegrationTes
     @Autowired OutboxService service;
     @Autowired ObjectMapper mapper;
     @MockitoSpyBean KafkaProducerService producer;
-    @Autowired javax.sql.DataSource dataSource;
+    @Autowired DataSource dataSource;
 
     @Test
     void sqlFixturesPublishCompleteMessageSavedEvents() throws Exception {
         repository.deleteAllInBatch();
-        new org.springframework.jdbc.datasource.init.ResourceDatabasePopulator(
-                new org.springframework.core.io.ClassPathResource("db/testdata/05_insert_outbox_events.sql"))
+        new ResourceDatabasePopulator(
+                new ClassPathResource("db/testdata/05_insert_outbox_events.sql"))
                 .execute(dataSource);
 
         UUID alice = UUID.fromString("10000000-0000-0000-0000-000000000001");
@@ -44,18 +52,18 @@ class OutboxConcurrencyIntegrationTests extends PostgresKafkaRedisIntegrationTes
                         chat, alice, bob, "Hi, Bob!", Instant.parse("2026-08-01T09:05:00Z")),
                 new MessageSavedEvent(UUID.fromString("30000000-0000-0000-0000-000000000002"),
                         chat, bob, alice, "Hi, Alice!", Instant.parse("2026-08-01T09:06:00Z")));
-        var decoded = new java.util.ArrayList<MessageSavedEvent>();
+        var decoded = new ArrayList<MessageSavedEvent>();
         for (var row : repository.findAll()) {
             assertThat(row.getTopic()).isEqualTo(KafkaTopics.CHAT_PROCESSED);
             decoded.add(mapper.readValue(row.getPayload(), MessageSavedEvent.class));
         }
         assertThat(decoded).containsExactlyInAnyOrderElementsOf(expected);
 
-        try (var records = new org.messenger.testsupport.KafkaRecordReader()) {
+        try (var records = new KafkaRecordReader()) {
             service.processBatch();
             String json = records.awaitValue(KafkaTopics.CHAT_PROCESSED,
                     value -> value.contains(expected.getFirst().messageId().toString()),
-                    java.time.Duration.ofSeconds(20));
+                    Duration.ofSeconds(20));
             assertThat(mapper.readValue(json, MessageSavedEvent.class)).isEqualTo(expected.getFirst());
             assertThat(repository.findAll()).allMatch(row -> Boolean.TRUE.equals(row.getSent()));
         }

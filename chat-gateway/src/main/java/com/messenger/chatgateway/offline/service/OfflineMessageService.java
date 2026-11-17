@@ -1,5 +1,6 @@
 package com.messenger.chatgateway.offline.service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.chat.shared.caching.PendingMessageScripts;
@@ -8,6 +9,7 @@ import org.chat.shared.kafka.event.MessageDeliveredEvent;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.stereotype.Service;
+
 import java.util.Comparator;
 import java.util.List;
 
@@ -29,7 +31,7 @@ public class OfflineMessageService {
     private MessageDeliveredEvent parse(String json) {
         try {
             return mapper.readValue(json, MessageDeliveredEvent.class);
-        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+        } catch (JsonProcessingException e) {
             throw new IllegalArgumentException("Invalid pending message; kept in Redis", e);
         }
     }

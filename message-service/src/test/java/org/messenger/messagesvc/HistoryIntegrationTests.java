@@ -1,19 +1,22 @@
 package org.messenger.messagesvc;
 
-import org.junit.jupiter.api.Test;
 import org.chat.shared.kafka.event.MessageSentEvent;
-import org.messenger.messagesvc.chat.service.ChatService;
-import org.messenger.messagesvc.message.service.MessageService;
+import org.junit.jupiter.api.Test;
 import org.messenger.messagesvc.chat.repository.ChatMemberRepository;
+import org.messenger.messagesvc.chat.service.ChatService;
+import org.messenger.messagesvc.message.repository.MessageRepository;
+import org.messenger.messagesvc.message.service.MessageService;
 import org.messenger.testsupport.PostgresKafkaRedisIntegrationTest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.web.client.RestClient;
+
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.*;
+
 import static org.assertj.core.api.Assertions.*;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
@@ -57,7 +60,7 @@ class HistoryIntegrationTests extends PostgresKafkaRedisIntegrationTest {
         assertThat(chats.getChats(a).getFirst().lastMessageId()).isEqualTo(second);
     }
 
-    @Autowired org.messenger.messagesvc.message.repository.MessageRepository messageRepository;
+    @Autowired MessageRepository messageRepository;
 
     @Test
     void latestMessagesAreLimitedToRequestedChatsAndEmptyChatsRemainVisible() {

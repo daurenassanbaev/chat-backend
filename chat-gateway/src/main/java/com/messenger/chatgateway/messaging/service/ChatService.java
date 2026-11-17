@@ -1,6 +1,7 @@
 package com.messenger.chatgateway.messaging.service;
 
 import com.messenger.chatgateway.messaging.dto.MessageDto;
+import com.messenger.chatgateway.messaging.dto.SendAccepted;
 import com.messenger.chatgateway.messaging.dto.SendError;
 import com.messenger.chatgateway.messaging.kafka.KafkaProducerService;
 import com.messenger.chatgateway.messaging.util.mapper.MessageMapper;
@@ -11,7 +12,6 @@ import org.chat.shared.kafka.event.MessageSentEvent;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 
-import java.util.List;
 import java.util.UUID;
 
 @Service
@@ -40,7 +40,7 @@ public class ChatService {
                     reportSendFailure(userId, messageDto.clientMessageId(), error);
                 } else {
                     messagingTemplate.convertAndSendToUser(userId, "/queue/send-results",
-                            new com.messenger.chatgateway.messaging.dto.SendAccepted(
+                            new SendAccepted(
                                     messageDto.clientMessageId(), eventDto.messageId()));
                     log.info("Message queued in Kafka: {}", eventDto.messageId());
                 }

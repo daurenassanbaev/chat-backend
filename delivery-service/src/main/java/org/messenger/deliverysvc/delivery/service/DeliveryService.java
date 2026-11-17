@@ -1,18 +1,17 @@
 package org.messenger.deliverysvc.delivery.service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import org.chat.shared.caching.PendingMessageScripts;
 import org.chat.shared.kafka.event.MessageDeliveredEvent;
 import org.chat.shared.kafka.event.MessageSavedEvent;
-import org.messenger.deliverysvc.caching.service.RedisService;
 import org.messenger.deliverysvc.delivery.kafka.KafkaProducerService;
-import org.springframework.stereotype.Service;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.RedisScript;
-import org.chat.shared.caching.PendingMessageScripts;
-import java.util.List;
+import org.springframework.stereotype.Service;
 
-import java.util.Objects;
+import java.util.List;
 
 import static org.chat.shared.caching.RedisConstants.*;
 
@@ -31,7 +30,7 @@ public class DeliveryService {
         try {
             redis.execute(SAVE_PENDING, List.of(OFFLINE_KEY.formatted(eventDto.recipientId())),
                     eventDto.messageId().toString(), objectMapper.writeValueAsString(delivered));
-        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+        } catch (JsonProcessingException e) {
             throw new IllegalArgumentException("Cannot serialize pending message", e);
         }
         Long active = redis.opsForZSet().count(PRESENCE_SESSIONS_KEY.formatted(eventDto.recipientId()),

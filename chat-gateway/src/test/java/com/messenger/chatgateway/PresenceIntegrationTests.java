@@ -1,5 +1,6 @@
 package com.messenger.chatgateway;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.messenger.chatgateway.presence.service.PresenceService;
 import org.chat.shared.caching.RedisConstants;
 import org.junit.jupiter.api.Test;
@@ -9,8 +10,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.redis.core.StringRedisTemplate;
+
 import java.time.Duration;
+import java.util.Map;
 import java.util.UUID;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
@@ -62,8 +66,8 @@ class PresenceIntegrationTests extends KafkaRedisIntegrationTest {
         try (var client = new StompTestClient(port, UUID.randomUUID().toString())) {
             client.subscribe("/user/queue/errors");
             // Same inbound executor order ensures SUBSCRIBE precedes SEND.
-            String payload = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(
-                    java.util.Map.of("text", "   ", "clientMessageId", UUID.randomUUID().toString()));
+            String payload = new ObjectMapper().writeValueAsString(
+                    Map.of("text", "   ", "clientMessageId", UUID.randomUUID().toString()));
             client.send("/app/chat", payload);
             assertThat(client.receive(Duration.ofSeconds(10))).contains("10000");
         }
