@@ -1,5 +1,7 @@
 package org.messenger.messagesvc.message.entity;
 
+import org.messenger.messagesvc.status.entity.MessageStatus;
+
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;

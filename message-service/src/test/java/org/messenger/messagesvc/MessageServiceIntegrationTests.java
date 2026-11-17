@@ -5,10 +5,10 @@ import org.chat.shared.kafka.constants.KafkaTopics;
 import org.chat.shared.kafka.event.MessageDeliveredEvent;
 import org.chat.shared.kafka.event.MessageSentEvent;
 import org.junit.jupiter.api.Test;
-import org.messenger.messagesvc.message.entity.MessageStatus;
+import org.messenger.messagesvc.status.entity.MessageStatus;
 import org.messenger.messagesvc.message.repository.MessageRepository;
-import org.messenger.messagesvc.message.repository.OutboxRepository;
-import org.messenger.messagesvc.message.service.OutboxService;
+import org.messenger.messagesvc.outbox.repository.OutboxRepository;
+import org.messenger.messagesvc.outbox.service.OutboxService;
 import org.messenger.testsupport.KafkaRecordReader;
 import org.messenger.testsupport.PostgresKafkaRedisIntegrationTest;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -138,7 +138,7 @@ class MessageServiceIntegrationTests extends PostgresKafkaRedisIntegrationTest {
                 .get(10, TimeUnit.SECONDS);
     }
 
-    private List<org.messenger.messagesvc.message.entity.OutboxEvent> outboxFor(UUID messageId) {
+    private List<org.messenger.messagesvc.outbox.entity.OutboxEvent> outboxFor(UUID messageId) {
         return outboxRepository.findAll().stream()
                 .filter(outbox -> outbox.getPayload().contains(messageId.toString()))
                 .toList();

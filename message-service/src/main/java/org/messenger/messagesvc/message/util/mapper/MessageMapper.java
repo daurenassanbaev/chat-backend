@@ -3,7 +3,7 @@ package org.messenger.messagesvc.message.util.mapper;
 import lombok.experimental.UtilityClass;
 import org.chat.shared.kafka.event.MessageSavedEvent;
 import org.chat.shared.kafka.event.MessageSentEvent;
-import org.messenger.messagesvc.message.dto.MessageDto;
+import org.messenger.messagesvc.history.dto.MessageDto;
 import org.messenger.messagesvc.message.entity.Message;
 
 import java.util.UUID;

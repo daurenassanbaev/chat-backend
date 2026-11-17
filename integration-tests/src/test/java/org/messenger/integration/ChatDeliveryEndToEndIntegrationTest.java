@@ -14,9 +14,9 @@ import org.chat.shared.caching.RedisConstants;
 import org.chat.shared.kafka.constants.KafkaTopics;
 import org.messenger.deliverysvc.DeliveryServiceApplication;
 import org.messenger.messagesvc.MessageServiceApplication;
-import org.messenger.messagesvc.message.entity.MessageStatus;
+import org.messenger.messagesvc.status.entity.MessageStatus;
 import org.messenger.messagesvc.message.repository.MessageRepository;
-import org.messenger.messagesvc.message.repository.OutboxRepository;
+import org.messenger.messagesvc.outbox.repository.OutboxRepository;
 import org.messenger.testsupport.KafkaRecordReader;
 import org.messenger.testsupport.PostgresKafkaRedisIntegrationTest;
 import org.springframework.boot.WebApplicationType;
@@ -88,9 +88,9 @@ class ChatDeliveryEndToEndIntegrationTest extends PostgresKafkaRedisIntegrationT
             assertThat(deliveredEvent).contains(chatId.toString()).contains(recipientId.toString());
         }
 
-        var pending = chatGateway.getBean(com.messenger.chatgateway.messaging.service.OfflineMessageService.class)
+        var pending = chatGateway.getBean(com.messenger.chatgateway.offline.service.OfflineMessageService.class)
                 .readPending(recipientId.toString());
-        chatGateway.getBean(com.messenger.chatgateway.messaging.service.MessageAckService.class)
+        chatGateway.getBean(com.messenger.chatgateway.offline.service.MessageAckService.class)
                 .acknowledge(recipientId.toString(), pending.getFirst().messageId());
 
         MessageRepository messages = messageService.getBean(MessageRepository.class);
@@ -115,7 +115,7 @@ class ChatDeliveryEndToEndIntegrationTest extends PostgresKafkaRedisIntegrationT
         UUID chatId = UUID.fromString(createDirectChat(sender, recipient).get("chatId").asText());
         chatGateway.getBean(ChatService.class).processMessage(
                 new MessageDto(chatId, List.of(recipient), "offline-reconnect"), sender.toString());
-        var pending = chatGateway.getBean(com.messenger.chatgateway.messaging.service.OfflineMessageService.class);
+        var pending = chatGateway.getBean(com.messenger.chatgateway.offline.service.OfflineMessageService.class);
         Awaitility.await().atMost(Duration.ofSeconds(25)).untilAsserted(() ->
                 assertThat(pending.readPending(recipient.toString())).hasSize(1));
         UUID messageId = pending.readPending(recipient.toString()).getFirst().messageId();

@@ -2,7 +2,7 @@ package com.messenger.chatgateway.websocket.listener;
 
 import com.messenger.chatgateway.caching.service.RedisService;
 import com.messenger.chatgateway.messaging.service.ChatService;
-import com.messenger.chatgateway.messaging.service.OfflineMessageService;
+import com.messenger.chatgateway.offline.service.OfflineMessageService;
 import com.messenger.chatgateway.websocket.util.StompSessionUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.event.EventListener;

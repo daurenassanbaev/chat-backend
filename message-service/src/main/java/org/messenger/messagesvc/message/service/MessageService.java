@@ -1,11 +1,15 @@
 package org.messenger.messagesvc.message.service;
 
+import org.messenger.messagesvc.chat.service.ChatService;
+import org.messenger.messagesvc.chat.service.ChatMemberService;
+import org.messenger.messagesvc.outbox.service.OutboxService;
+
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.chat.shared.kafka.event.MessageSentEvent;
-import org.messenger.messagesvc.message.dto.MessageDto;
+import org.messenger.messagesvc.history.dto.MessageDto;
 import org.messenger.messagesvc.message.entity.Message;
-import org.messenger.messagesvc.message.entity.MessageStatus;
+import org.messenger.messagesvc.status.entity.MessageStatus;
 import org.messenger.messagesvc.message.repository.MessageRepository;
 import org.messenger.messagesvc.message.util.mapper.MessageMapper;
 import org.springframework.stereotype.Service;

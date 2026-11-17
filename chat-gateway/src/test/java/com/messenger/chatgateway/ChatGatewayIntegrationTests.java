@@ -115,7 +115,7 @@ class ChatGatewayIntegrationTests extends KafkaRedisIntegrationTest {
     @Autowired
     private org.springframework.data.redis.core.StringRedisTemplate redis;
     @Autowired
-    private com.messenger.chatgateway.messaging.service.MessageAckService ackService;
+    private com.messenger.chatgateway.offline.service.MessageAckService ackService;
 
     @Test
     void failedAckPublicationKeepsPendingMessage() throws Exception {

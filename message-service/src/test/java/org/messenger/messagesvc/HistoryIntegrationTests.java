@@ -2,9 +2,9 @@ package org.messenger.messagesvc;
 
 import org.junit.jupiter.api.Test;
 import org.chat.shared.kafka.event.MessageSentEvent;
-import org.messenger.messagesvc.message.service.ChatService;
+import org.messenger.messagesvc.chat.service.ChatService;
 import org.messenger.messagesvc.message.service.MessageService;
-import org.messenger.messagesvc.message.repository.ChatMemberRepository;
+import org.messenger.messagesvc.chat.repository.ChatMemberRepository;
 import org.messenger.testsupport.PostgresKafkaRedisIntegrationTest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
