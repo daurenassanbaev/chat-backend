@@ -34,12 +34,11 @@ public class RedisService {
         return stringRedisTemplate.opsForList().range(key, 0, -1);
     }
 
-    @SuppressWarnings("unchecked")
     public <T> T executeScript(
             String key,
             RedisScript<T> script
     ) {
-        return (T) stringRedisTemplate.execute(
+        return stringRedisTemplate.execute(
                 script,
                 List.of(key)
         );
