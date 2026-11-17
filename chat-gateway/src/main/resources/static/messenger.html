@@ -600,7 +600,14 @@
             onConnect: () => {
                 connected = true;
 
-                stompClient.subscribe('/user/queue/messages', (frame) => {
+                stompClient.subscribe('/user/queue/errors', (frame) => {
+                    const error = JSON.parse(frame.body);
+                    const row = document.querySelector(`[data-client-id="${error.clientMessageId}"]`);
+                    if (row) row.dataset.state = 'failed';
+                    document.getElementById('peerStatus').textContent = 'Не отправлено';
+                    console.warn(error.reason);
+                });
+                stompClient.subscribe('/user/queue/messages' , (frame) => {
                     try {
                         const payload = JSON.parse(frame.body);
                         if (!payload.chatId || !payload.senderId) return;
@@ -840,10 +847,11 @@
         const text     = textarea.value.trim();
         if (!stompClient?.connected || !text || !activeChatId) return;
 
+        const clientMessageId = crypto.randomUUID();
         stompClient.publish({
             destination: '/app/chat',
             headers: { 'user-id': currentUser },
-            body: JSON.stringify({ chatId: activeChatId, text }),
+            body: JSON.stringify({ chatId: activeChatId, text, clientMessageId }),
         });
 
         upsertChatPreview(activeChatId, activePeerId, text);

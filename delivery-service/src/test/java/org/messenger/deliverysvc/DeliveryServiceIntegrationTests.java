@@ -22,8 +22,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 @SpringBootTest
 class DeliveryServiceIntegrationTests extends KafkaRedisIntegrationTest {
 
-    @Autowired
-    private KafkaTemplate<Object, Object> kafkaTemplate;
+    @org.springframework.test.context.bean.override.mockito.MockitoSpyBean(name = "kafkaTemplate")
+    private KafkaTemplate kafkaTemplate;
 
     @Autowired
     private StringRedisTemplate redisTemplate;
@@ -63,6 +63,46 @@ class DeliveryServiceIntegrationTests extends KafkaRedisIntegrationTest {
             assertThat(queued).isNotNull().anySatisfy(json ->
                     assertThat(json).contains(event.messageId().toString()).contains(event.content()));
         });
+    }
+
+    @Test
+    void failedOutgoingSendRetriesTheIncomingRecord() throws Exception {
+        var event = event();
+        redisTemplate.opsForValue().set(RedisConstants.ONLINE_KEY.formatted(event.recipientId()), "1");
+        var attempts = new java.util.concurrent.atomic.AtomicInteger();
+        org.mockito.Mockito.doAnswer(invocation -> {
+            Object value = invocation.getArgument(2);
+            if (KafkaTopics.CHAT_DELIVERED.equals(invocation.getArgument(0))
+                    && value instanceof org.chat.shared.kafka.event.MessageDeliveredEvent delivered
+                    && event.messageId().equals(delivered.messageId())) {
+                if (attempts.incrementAndGet() == 1) {
+                    return java.util.concurrent.CompletableFuture.failedFuture(
+                            new IllegalStateException("Injected asynchronous producer failure"));
+                }
+            }
+            return invocation.callRealMethod();
+        }).when(kafkaTemplate).send(org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+        try (var records = new KafkaRecordReader()) {
+            kafkaTemplate.send(KafkaTopics.CHAT_PROCESSED, event.recipientId().toString(), event)
+                    .get(10, TimeUnit.SECONDS);
+            records.awaitValue(KafkaTopics.CHAT_DELIVERED,
+                    value -> value.contains(event.messageId().toString()), Duration.ofSeconds(20));
+            assertThat(attempts.get()).isGreaterThanOrEqualTo(2);
+        }
+    }
+
+    @Test
+    void permanentlyInvalidEventGoesToProcessedDlt() throws Exception {
+        var event = new MessageSavedEvent(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
+                UUID.randomUUID(), "invalid-recipient", Instant.now());
+        redisTemplate.opsForValue().set(RedisConstants.OFFLINE_KEY.formatted(event.recipientId()), "wrong-type");
+        try (var records = new KafkaRecordReader()) {
+            kafkaTemplate.send(KafkaTopics.CHAT_PROCESSED, "invalid", event).get(10, TimeUnit.SECONDS);
+            assertThat(records.awaitValue(KafkaTopics.CHAT_PROCESSED + ".dlt",
+                    value -> value.contains(event.messageId().toString()), Duration.ofSeconds(20)))
+                    .contains("invalid-recipient");
+        }
     }
 
     private MessageSavedEvent event() {

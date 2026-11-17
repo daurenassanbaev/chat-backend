@@ -2,6 +2,7 @@ package com.messenger.chatgateway.messaging.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.messenger.chatgateway.messaging.dto.MessageDto;
+import com.messenger.chatgateway.messaging.dto.SendError;
 import com.messenger.chatgateway.messaging.kafka.KafkaProducerService;
 import com.messenger.chatgateway.messaging.util.mapper.MessageMapper;
 import lombok.RequiredArgsConstructor;
@@ -35,9 +36,23 @@ public class ChatService {
                 messageDto
         );
 
-        kafkaProducerService.sendMessageSentEvent(eventDto);
+        try {
+            kafkaProducerService.sendMessageSentEvent(eventDto).whenComplete((result, error) -> {
+                if (error != null) {
+                    reportSendFailure(userId, messageDto.clientMessageId(), error);
+                } else {
+                    log.info("Message queued in Kafka: {}", eventDto.messageId());
+                }
+            });
+        } catch (RuntimeException error) {
+            reportSendFailure(userId, messageDto.clientMessageId(), error);
+        }
+    }
 
-        log.info("Message sent to Kafka: {}", eventDto);
+    private void reportSendFailure(String userId, UUID clientMessageId, Throwable error) {
+        log.warn("Kafka send failed for client message {}", clientMessageId, error);
+        messagingTemplate.convertAndSendToUser(userId, "/queue/errors",
+                new SendError(clientMessageId, "Не отправлено: ошибка Kafka или результат неизвестен"));
     }
 
     public void sendMessage(MessageDeliveredEvent eventDto) {

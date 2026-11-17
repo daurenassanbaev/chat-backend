@@ -24,4 +24,9 @@ public class KafkaTopicConfig {
                 .replicas(1)
                 .build();
     }
+    @Bean
+    public NewTopic deadLetterTopic() {
+        return TopicBuilder.name(KafkaTopics.CHAT_PROCESSED + ".dlt")
+                .partitions(3).replicas(1).build();
+    }
 }

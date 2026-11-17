@@ -5,7 +5,7 @@ import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.chat.shared.kafka.event.MessageSentEvent;
 import org.chat.shared.kafka.event.MessageDeliveredEvent;
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.kafka.autoconfigure.KafkaProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
@@ -44,19 +44,13 @@ public class KafkaConsumerConfig {
 
     @Bean
     public ConcurrentKafkaListenerContainerFactory<String, MessageDeliveredEvent> deliveredEventListenerContainerFactory(
-            @Value("${spring.kafka.bootstrap-servers}") String bootstrapServers,
+            KafkaProperties kafkaProperties,
             DefaultErrorHandler errorHandler
     ) {
-        Map<String, Object> consumerProperties = new HashMap<>();
-        consumerProperties.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
-        consumerProperties.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
-        consumerProperties.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
-
-        ConsumerFactory<String, MessageDeliveredEvent> consumerFactory = new DefaultKafkaConsumerFactory<>(
-                consumerProperties,
-                new StringDeserializer(),
-                new JsonDeserializer<>(MessageDeliveredEvent.class, false)
-        );
+        Map<String, Object> consumerProperties = new HashMap<>(kafkaProperties.buildConsumerProperties());
+        consumerProperties.put(JsonDeserializer.VALUE_DEFAULT_TYPE, MessageDeliveredEvent.class.getName());
+        ConsumerFactory<String, MessageDeliveredEvent> consumerFactory =
+                new DefaultKafkaConsumerFactory<>(consumerProperties);
 
         ConcurrentKafkaListenerContainerFactory<String, MessageDeliveredEvent> factory =
                 new ConcurrentKafkaListenerContainerFactory<>();
@@ -87,6 +81,7 @@ public class KafkaConsumerConfig {
 
         errorHandler.addNotRetryableExceptions(IllegalArgumentException.class);
 
+        errorHandler.setCommitRecovered(true);
         return errorHandler;
     }
 }

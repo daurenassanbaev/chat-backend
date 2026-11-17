@@ -88,4 +88,23 @@ class ChatGatewayIntegrationTests extends KafkaRedisIntegrationTest {
                 eq(event)
         );
     }
+    @MockitoSpyBean
+    private com.messenger.chatgateway.messaging.kafka.KafkaProducerService producer;
+
+    @Test
+    void reportsSynchronousAndAsynchronousSendErrors() {
+        for (boolean synchronous : List.of(true, false)) {
+            UUID clientId = UUID.randomUUID();
+            String user = UUID.randomUUID().toString();
+            org.mockito.Mockito.doAnswer(invocation -> {
+                if (synchronous) throw new IllegalStateException("sync failure");
+                return java.util.concurrent.CompletableFuture.failedFuture(new IllegalStateException("async failure"));
+            }).when(producer).sendMessageSentEvent(org.mockito.ArgumentMatchers.any());
+            chatService.processMessage(new MessageDto(UUID.randomUUID(), List.of(), "test", clientId), user);
+            verify(messagingTemplate).convertAndSendToUser(eq(user), eq("/queue/errors"),
+                    org.mockito.ArgumentMatchers.argThat(value -> value instanceof
+                            com.messenger.chatgateway.messaging.dto.SendError error
+                            && clientId.equals(error.clientMessageId())));
+        }
+    }
 }

@@ -52,6 +52,7 @@ public class KafkaConsumerConfig {
 
         errorHandler.addNotRetryableExceptions(IllegalArgumentException.class);
 
+        errorHandler.setCommitRecovered(true);
         return errorHandler;
     }
 }

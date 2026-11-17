@@ -6,5 +6,10 @@ import java.util.List;
 public record MessageDto (
         UUID chatId,
         List<UUID> recipientIds,
-        String text
-) {}
+        String text,
+        UUID clientMessageId
+) {
+    public MessageDto(UUID chatId, List<UUID> recipientIds, String text) {
+        this(chatId, recipientIds, text, null);
+    }
+}
