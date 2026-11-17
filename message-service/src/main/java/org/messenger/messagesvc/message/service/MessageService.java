@@ -44,6 +44,10 @@ public class MessageService {
                 chatMemberService.findRecipients(message.getChatId(), message.getSenderId())
         );
 
+        cacheRecentMessage(message);
+    }
+
+    private void cacheRecentMessage(Message message) {
         try {
             String key = RedisKeys.LAST_MSG_KEY.formatted(message.getChatId());
 

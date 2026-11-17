@@ -562,10 +562,10 @@
 
     function login() {
         const userId = document.getElementById('loginUserId').value.trim();
-        if (!isUuid(userId)) {
-            alert('Укажите корректный UUID пользователя');
-            return;
-        }
+        // if (!isUuid(userId)) {
+        //     alert('Укажите корректный UUID пользователя');
+        //     return;
+        // }
         currentUser = userId.toLowerCase();
 
         document.getElementById('login-screen').style.display = 'none';

@@ -16,4 +16,20 @@ public class KafkaTopicConfig {
                 .replicas(1)
                 .build();
     }
+
+    @Bean
+    public NewTopic chatDeliveredTopic() {
+        return TopicBuilder.name(KafkaTopics.CHAT_DELIVERED)
+                .partitions(3)
+                .replicas(1)
+                .build();
+    }
+
+    @Bean
+    public NewTopic chatMessagesDeadLetterTopic() {
+        return TopicBuilder.name(KafkaTopics.CHAT_MESSAGES + ".dlt")
+                .partitions(3)
+                .replicas(1)
+                .build();
+    }
 }
