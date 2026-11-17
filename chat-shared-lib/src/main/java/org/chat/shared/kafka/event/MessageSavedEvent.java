@@ -12,6 +12,5 @@ public record MessageSavedEvent(
         UUID senderId,
         UUID recipientId,
         String content,
-        Instant createdAt,
-        String eventType
+        Instant createdAt
 ) {}
