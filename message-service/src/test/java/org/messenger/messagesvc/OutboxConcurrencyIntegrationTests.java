@@ -27,6 +27,39 @@ class OutboxConcurrencyIntegrationTests extends PostgresKafkaRedisIntegrationTes
     @Autowired OutboxService service;
     @Autowired ObjectMapper mapper;
     @MockitoSpyBean KafkaProducerService producer;
+    @Autowired javax.sql.DataSource dataSource;
+
+    @Test
+    void sqlFixturesPublishCompleteMessageSavedEvents() throws Exception {
+        repository.deleteAllInBatch();
+        new org.springframework.jdbc.datasource.init.ResourceDatabasePopulator(
+                new org.springframework.core.io.ClassPathResource("db/testdata/05_insert_outbox_events.sql"))
+                .execute(dataSource);
+
+        UUID alice = UUID.fromString("10000000-0000-0000-0000-000000000001");
+        UUID bob = UUID.fromString("10000000-0000-0000-0000-000000000002");
+        UUID chat = UUID.fromString("20000000-0000-0000-0000-000000000001");
+        var expected = List.of(
+                new MessageSavedEvent(UUID.fromString("30000000-0000-0000-0000-000000000001"),
+                        chat, alice, bob, "Hi, Bob!", Instant.parse("2026-08-01T09:05:00Z")),
+                new MessageSavedEvent(UUID.fromString("30000000-0000-0000-0000-000000000002"),
+                        chat, bob, alice, "Hi, Alice!", Instant.parse("2026-08-01T09:06:00Z")));
+        var decoded = new java.util.ArrayList<MessageSavedEvent>();
+        for (var row : repository.findAll()) {
+            assertThat(row.getTopic()).isEqualTo(KafkaTopics.CHAT_PROCESSED);
+            decoded.add(mapper.readValue(row.getPayload(), MessageSavedEvent.class));
+        }
+        assertThat(decoded).containsExactlyInAnyOrderElementsOf(expected);
+
+        try (var records = new org.messenger.testsupport.KafkaRecordReader()) {
+            service.processBatch();
+            String json = records.awaitValue(KafkaTopics.CHAT_PROCESSED,
+                    value -> value.contains(expected.getFirst().messageId().toString()),
+                    java.time.Duration.ofSeconds(20));
+            assertThat(mapper.readValue(json, MessageSavedEvent.class)).isEqualTo(expected.getFirst());
+            assertThat(repository.findAll()).allMatch(row -> Boolean.TRUE.equals(row.getSent()));
+        }
+    }
 
     private OutboxEvent event(int index) throws Exception {
         var id = UUID.randomUUID();
