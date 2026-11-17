@@ -14,6 +14,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.concurrent.TimeUnit;
+import org.springframework.beans.factory.annotation.Value;
+import org.chat.shared.kafka.constants.KafkaTopics;
 import java.util.List;
 import java.util.UUID;
 
@@ -25,6 +28,9 @@ public class OutboxService {
     private final OutboxRepository outboxRepository;
     private final KafkaProducerService producerService;
     private final ObjectMapper objectMapper;
+
+    @Value("${outbox.batch-size:50}")
+    private int batchSize;
 
     public void saveMessageSavedEvents(
             MessageSentEvent messageSentEvent,
@@ -38,8 +44,8 @@ public class OutboxService {
     }
 
     @Transactional
-    public void processAll() {
-        List<OutboxEvent> events = outboxRepository.findBySentFalse();
+    public void processBatch() {
+        List<OutboxEvent> events = outboxRepository.lockBatch(batchSize);
 
         for (OutboxEvent event : events) {
             try {
@@ -48,28 +54,25 @@ public class OutboxService {
                                 event.getPayload(),
                                 MessageSavedEvent.class
                         );
-                producerService.sendMessage(savedEvent);
+                producerService.sendMessage(savedEvent).get(5, TimeUnit.SECONDS);
 
                 event.setSent(true);
 
-                outboxRepository.save(event);
+
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                log.warn("Outbox interrupted at {}", event.getId(), ex);
+                break;
             } catch (Exception ex) {
-                log.error(
-                        """
-                                Failed processing event:
-                                id={}
-                                topic={}
-                                payload={}
-                                error={}
-                                """,
-                        event.getId(),
-                        event.getTopic(),
-                        event.getPayload(),
-                        ex.getMessage(),
-                        ex
-                );
+                log.warn("Outbox send failed or result unknown at {}", event.getId(), ex);
+                break;
             }
         }
+    }
+
+    @Transactional
+    public int cleanupSentBatch() {
+        return outboxRepository.deleteOldSentBatch(batchSize);
     }
 
     private OutboxEvent createOutboxEvent(
@@ -79,7 +82,7 @@ public class OutboxService {
         try {
             OutboxEvent event = new OutboxEvent();
             event.setId(UUID.randomUUID());
-            event.setTopic("message-saved");
+            event.setTopic(KafkaTopics.CHAT_PROCESSED);
             event.setPayload(
                     objectMapper.writeValueAsString(
                             MessageMapper.toMessageSavedEvent(

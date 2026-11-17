@@ -59,7 +59,7 @@ class MessageServiceIntegrationTests extends PostgresKafkaRedisIntegrationTest {
                         .isEqualTo(1L);
             });
 
-            outboxService.processAll();
+            outboxService.processBatch();
 
             String published = records.awaitValue(
                     KafkaTopics.CHAT_PROCESSED,

@@ -14,10 +14,16 @@ public class OutboxPoller {
 
     private final OutboxService outboxService;
 
-    @Scheduled(fixedDelay = 5000)
+    @Scheduled(fixedDelayString = "${outbox.poll-delay-ms:5000}",
+            initialDelayString = "${outbox.initial-delay-ms:0}")
     public void publishEvents() {
         log.info("Outbox poller started");
-        outboxService.processAll();
+        outboxService.processBatch();
         log.info("Outbox poller finished");
+    }
+    @Scheduled(fixedDelayString = "${outbox.cleanup-delay-ms:3600000}",
+            initialDelayString = "${outbox.cleanup-initial-delay-ms:3600000}")
+    public void cleanupSentEvents() {
+        outboxService.cleanupSentBatch();
     }
 }
