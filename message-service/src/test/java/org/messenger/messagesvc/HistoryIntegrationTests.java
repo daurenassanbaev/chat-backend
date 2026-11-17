@@ -57,6 +57,36 @@ class HistoryIntegrationTests extends PostgresKafkaRedisIntegrationTest {
         assertThat(chats.getChats(a).getFirst().lastMessageId()).isEqualTo(second);
     }
 
+    @Autowired org.messenger.messagesvc.message.repository.MessageRepository messageRepository;
+
+    @Test
+    void latestMessagesAreLimitedToRequestedChatsAndEmptyChatsRemainVisible() {
+        var user = UUID.randomUUID();
+        var peer = UUID.randomUUID();
+        var first = chats.createOrGetDirectChat(user, peer);
+        var second = chats.createOrGetDirectChat(user, UUID.randomUUID());
+        var empty = chats.createOrGetDirectChat(user, UUID.randomUUID());
+        var unrelated = chats.createOrGetDirectChat(peer, UUID.randomUUID());
+        Instant now = Instant.parse("2026-11-17T10:00:00Z");
+        UUID oldId = UUID.randomUUID();
+        UUID latestId = UUID.randomUUID();
+        messages.save(new MessageSentEvent(oldId, first.chatId(), user, List.of(), "old", now));
+        messages.save(new MessageSentEvent(latestId, first.chatId(), user, List.of(), "latest", now.plusSeconds(1)));
+        messages.save(new MessageSentEvent(UUID.randomUUID(), second.chatId(), user, List.of(), "second", now));
+        messages.save(new MessageSentEvent(UUID.randomUUID(), unrelated.chatId(), peer, List.of(), "unrelated", now));
+
+        // IN semantics are preserved for duplicate IDs, missing chats, and chats with no messages.
+        assertThat(messageRepository.findLatestForChats(List.of(first.chatId(), first.chatId(),
+                empty.chatId(), UUID.randomUUID()))).extracting(message -> message.getId())
+                .containsExactly(latestId);
+        var previews = chats.getChats(user);
+        assertThat(previews).hasSize(3);
+        assertThat(previews).filteredOn(preview -> preview.chatId().equals(first.chatId()))
+                .extracting(preview -> preview.lastMessageId()).containsExactly(latestId);
+        assertThat(previews).filteredOn(preview -> preview.chatId().equals(empty.chatId()))
+                .allSatisfy(preview -> assertThat(preview.lastMessageId()).isNull());
+    }
+
     @Test
     void invalidPaginationReturnsHttp400() {
         var a = UUID.randomUUID();

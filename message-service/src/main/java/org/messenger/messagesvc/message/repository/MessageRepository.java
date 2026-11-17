@@ -26,8 +26,15 @@ public interface MessageRepository extends JpaRepository<Message, UUID> {
     int markDelivered(@org.springframework.data.repository.query.Param("id") UUID id,
                       @org.springframework.data.repository.query.Param("chatId") UUID chatId);
     @org.springframework.data.jpa.repository.Query(value = """
-            SELECT DISTINCT ON (chat_id) * FROM messages WHERE chat_id IN (:chatIds)
-            ORDER BY chat_id, created_at DESC, id DESC
+            SELECT latest.*
+            FROM chats c
+            CROSS JOIN LATERAL (
+                SELECT m.* FROM messages m
+                WHERE m.chat_id = c.id
+                ORDER BY m.created_at DESC, m.id DESC
+                LIMIT 1
+            ) latest
+            WHERE c.id IN (:chatIds)
             """, nativeQuery = true)
     List<Message> findLatestForChats(@org.springframework.data.repository.query.Param("chatIds") List<UUID> chatIds);
 }
