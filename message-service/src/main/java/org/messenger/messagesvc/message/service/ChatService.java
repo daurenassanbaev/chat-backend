@@ -2,8 +2,6 @@ package org.messenger.messagesvc.message.service;
 
 import lombok.RequiredArgsConstructor;
 import org.chat.shared.kafka.event.MessageSentEvent;
-import org.messenger.messagesvc.caching.constants.RedisKeys;
-import org.messenger.messagesvc.caching.service.RedisService;
 import org.messenger.messagesvc.message.dto.ChatPreviewDto;
 import org.messenger.messagesvc.message.dto.DirectChatDto;
 import org.messenger.messagesvc.message.dto.MessageDto;
@@ -40,16 +38,15 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class ChatService {
 
-    private static final int CACHED_MESSAGES_LIMIT = 100;
 
     private final ChatRepository chatRepository;
     private final ChatMemberRepository chatMemberRepository;
     private final MessageRepository messageRepository;
-    private final RedisService redisService;
     private final UserService userService;
 
     @Transactional
     public DirectChatDto createOrGetDirectChat(UUID userId, UUID recipientId) {
+        if (recipientId == null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "recipientId is required");
         if (userId.equals(recipientId)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "A direct chat requires another user");
         }
@@ -100,52 +97,26 @@ public class ChatService {
     @Transactional(readOnly = true)
     public Page<MessageDto> getMessages(UUID userId, UUID chatId, int page, int size) {
         assertMember(chatId, userId);
-        String key = RedisKeys.LAST_MSG_KEY.formatted(chatId);
-        PageRequest pageable = PageRequest.of(page, size);
-
-        if (pageable.getOffset() + size > CACHED_MESSAGES_LIMIT) {
-            return messageRepository.findByChatIdOrderByCreatedAtDesc(chatId, pageable)
-                    .map(MessageDto::from);
+        if (page < 0 || size < 1 || size > 100) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "page >= 0 and 1 <= size <= 100 required");
         }
-
-        if (Boolean.TRUE.equals(redisService.exists(key))) {
-            Set<MessageDto> cached = redisService.getFromZSet(key, pageable.getOffset(),
-                    pageable.getOffset() + size - 1);
-            return new PageImpl<>(
-                    cached == null ? List.of() : new ArrayList<>(cached),
-                    pageable,
-                    messageRepository.countByChatId(chatId)
-            );
-        }
-
-        Page<MessageDto> fromDatabase = messageRepository
-                .findByChatIdOrderByCreatedAtDesc(chatId, PageRequest.of(0, CACHED_MESSAGES_LIMIT))
+        return messageRepository.findByChatIdOrderByCreatedAtDescIdDesc(chatId, PageRequest.of(page, size))
                 .map(MessageDto::from);
-
-        fromDatabase.forEach(message -> redisService.add2ZSet(key, message, message.createdAt().toEpochMilli()));
-        redisService.trimZSet(key, CACHED_MESSAGES_LIMIT);
-
-        return new PageImpl<>(
-                fromDatabase.getContent().stream().limit(size).toList(),
-                pageable,
-                fromDatabase.getTotalElements()
-        );
     }
 
     private void createChat(UUID chatId, UUID creatorId, List<UUID> recipientIds, Instant createdAt) {
         userService.ensureMockUsersExist(withCreator(creatorId, recipientIds));
 
-        Chat chat = new Chat();
-        chat.setId(chatId);
-        chat.setType(recipientIds.size() == 1 ? ChatType.DIRECT : ChatType.GROUP);
-        chat.setCreatedBy(creatorId);
-        chat.setCreatedAt(createdAt == null ? Instant.now() : createdAt);
-        chatRepository.saveAndFlush(chat);
-
+        Instant timestamp = createdAt == null ? Instant.now() : createdAt;
+        String type = recipientIds.size() == 1 ? ChatType.DIRECT.name() : ChatType.GROUP.name();
+        int inserted = chatRepository.insertIfAbsent(chatId, type, creatorId, timestamp);
+        if (inserted == 0) {
+            assertMember(chatId, creatorId);
+            return;
+        }
         List<ChatMember> members = new ArrayList<>();
-        members.add(newMember(chatId, creatorId, ChatRole.OWNER, chat.getCreatedAt()));
-        recipientIds.forEach(recipientId ->
-                members.add(newMember(chatId, recipientId, ChatRole.MEMBER, chat.getCreatedAt())));
+        members.add(newMember(chatId, creatorId, ChatRole.OWNER, timestamp));
+        recipientIds.forEach(recipientId -> members.add(newMember(chatId, recipientId, ChatRole.MEMBER, timestamp)));
         chatMemberRepository.saveAllAndFlush(members);
     }
 
@@ -167,7 +138,7 @@ public class ChatService {
 
     private Map<UUID, Message> latestMessages(List<UUID> chatIds) {
         Map<UUID, Message> result = new LinkedHashMap<>();
-        for (Message message : messageRepository.findAllByChatIdInOrderByCreatedAtDesc(chatIds)) {
+        for (Message message : messageRepository.findLatestForChats(chatIds)) {
             result.putIfAbsent(message.getChatId(), message);
         }
         return result;

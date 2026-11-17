@@ -36,7 +36,10 @@ public final class StompTestClient implements AutoCloseable, WebSocket.Listener 
         webSocket.request(1);
         return CompletableFuture.completedFuture(null);
     }
-    public void subscribe() { frame("SUBSCRIBE\nid:messages\ndestination:/user/queue/messages\n\n"); }
+    public void subscribe() { subscribe("/user/queue/messages"); }
+    public void subscribe(String destination) {
+        frame("SUBSCRIBE\nid:" + destination + "\ndestination:" + destination + "\n\n");
+    }
     public void send(String destination, String json) {
         frame("SEND\ndestination:" + destination + "\ncontent-type:application/json\n\n" + json);
     }

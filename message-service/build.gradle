@@ -20,6 +20,7 @@ repositories {
 }
 
 dependencies {
+    implementation 'org.springframework.boot:spring-boot-starter-validation'
     implementation project(':chat-shared-lib')
     implementation 'org.springframework.boot:spring-boot-starter-kafka'
     implementation 'org.springframework.boot:spring-boot-starter-webmvc'
@@ -45,4 +46,15 @@ tasks.named('test') {
 
 tasks.named('bootJar') {
     archiveFileName = 'app.jar'
+}
+
+// Explicit opt-in: a million-row SQL experiment does not run in every test suite.
+tasks.named('test') {
+    useJUnitPlatform { excludeTags 'benchmark' }
+}
+tasks.register('queryBenchmark', Test) {
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform { includeTags 'benchmark' }
+    systemProperty 'benchmark.report', rootProject.file('docs/query-benchmark.md').absolutePath
 }

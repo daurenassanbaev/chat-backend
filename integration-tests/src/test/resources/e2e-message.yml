@@ -26,4 +26,5 @@ spring:
         spring.json.use.type.headers: false
   data:
     redis:
-      timeout: 10s
+      connect-timeout: 1s
+      timeout: 2s

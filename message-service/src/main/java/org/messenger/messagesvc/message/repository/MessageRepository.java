@@ -13,7 +13,7 @@ public interface MessageRepository extends JpaRepository<Message, UUID> {
 
     List<Message> findAllByChatIdInOrderByCreatedAtDesc(List<UUID> chatIds);
 
-    Page<Message> findByChatIdOrderByCreatedAtDesc(UUID chatId, Pageable pageable);
+    Page<Message> findByChatIdOrderByCreatedAtDescIdDesc(UUID chatId, Pageable pageable);
 
     long countByChatId(UUID chatId);
 
@@ -25,4 +25,9 @@ public interface MessageRepository extends JpaRepository<Message, UUID> {
             """, nativeQuery = true)
     int markDelivered(@org.springframework.data.repository.query.Param("id") UUID id,
                       @org.springframework.data.repository.query.Param("chatId") UUID chatId);
+    @org.springframework.data.jpa.repository.Query(value = """
+            SELECT DISTINCT ON (chat_id) * FROM messages WHERE chat_id IN (:chatIds)
+            ORDER BY chat_id, created_at DESC, id DESC
+            """, nativeQuery = true)
+    List<Message> findLatestForChats(@org.springframework.data.repository.query.Param("chatIds") List<UUID> chatIds);
 }

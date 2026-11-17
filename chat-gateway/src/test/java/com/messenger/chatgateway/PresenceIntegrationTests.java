@@ -57,4 +57,15 @@ class PresenceIntegrationTests extends KafkaRedisIntegrationTest {
         assertThat(redis.opsForZSet().range(RedisConstants.PRESENCE_SESSIONS_KEY.formatted(user), 0, -1))
                 .containsExactly("B");
     }
+    @Test
+    void invalidStompTextReturnsErrorToCurrentSession() throws Exception {
+        try (var client = new StompTestClient(port, UUID.randomUUID().toString())) {
+            client.subscribe("/user/queue/errors");
+            // Same inbound executor order ensures SUBSCRIBE precedes SEND.
+            String payload = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(
+                    java.util.Map.of("text", "   ", "clientMessageId", UUID.randomUUID().toString()));
+            client.send("/app/chat", payload);
+            assertThat(client.receive(Duration.ofSeconds(10))).contains("10000");
+        }
+    }
 }

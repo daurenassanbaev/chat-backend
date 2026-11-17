@@ -4,8 +4,6 @@ import org.awaitility.Awaitility;
 import org.chat.shared.kafka.constants.KafkaTopics;
 import org.chat.shared.kafka.event.MessageDeliveredEvent;
 import org.chat.shared.kafka.event.MessageSentEvent;
-import org.messenger.messagesvc.caching.constants.RedisKeys;
-import org.messenger.messagesvc.caching.service.RedisService;
 import org.junit.jupiter.api.Test;
 import org.messenger.messagesvc.message.entity.MessageStatus;
 import org.messenger.messagesvc.message.repository.MessageRepository;
@@ -40,8 +38,6 @@ class MessageServiceIntegrationTests extends PostgresKafkaRedisIntegrationTest {
     @Autowired
     private OutboxService outboxService;
 
-    @Autowired
-    private RedisService redisService;
 
     @Test
     void consumesMessagePersistsItAndOutboxPollerPublishesForDelivery() throws Exception {
@@ -55,8 +51,6 @@ class MessageServiceIntegrationTests extends PostgresKafkaRedisIntegrationTest {
                 assertThat(saved.getContent()).isEqualTo(event.content());
                 assertThat(saved.getStatus()).isEqualTo(MessageStatus.SENT);
                 assertThat(outboxFor(event.messageId())).hasSize(1);
-                assertThat(redisService.getZSetSize(RedisKeys.LAST_MSG_KEY.formatted(event.chatId())))
-                        .isEqualTo(1L);
             });
 
             outboxService.processBatch();

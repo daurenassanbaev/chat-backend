@@ -22,6 +22,7 @@ public class UserService {
         userIds.stream()
                 .filter(Objects::nonNull)
                 .distinct()
+                .sorted()
                 .forEach(userId -> userRepository.insertMockUserIfAbsent(userId, "mock-" + userId));
     }
 }
