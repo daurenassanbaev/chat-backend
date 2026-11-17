@@ -1,7 +1,7 @@
 package org.messenger.messagesvc.message.service;
 
 import lombok.RequiredArgsConstructor;
-import org.chat.shared.kafka.event.MessageDeliveredEvent;
+import org.chat.shared.kafka.event.MessageReceivedEvent;
 import org.messenger.messagesvc.message.entity.ChatMemberId;
 import org.messenger.messagesvc.message.entity.MessageStatus;
 import org.messenger.messagesvc.message.repository.ChatMemberRepository;
@@ -17,15 +17,10 @@ public class MessageStatusService {
     private final ChatMemberRepository chatMemberRepository;
 
     @Transactional
-    public void markDelivered(MessageDeliveredEvent event) {
-        var message = messageRepository.findByIdAndChatId(event.messageId(), event.chatId())
-                .orElseThrow(() -> new IllegalStateException(
-                        "Delivered event references an unknown message: " + event.messageId()));
-
+    public void markDelivered(MessageReceivedEvent event) {
         if (!chatMemberRepository.existsById(new ChatMemberId(event.chatId(), event.recipientId()))) {
             throw new IllegalArgumentException("Delivery recipient is not a member of the chat");
         }
-
-        message.setStatus(MessageStatus.DELIVERED);
+        messageRepository.markDelivered(event.messageId(), event.chatId());
     }
 }

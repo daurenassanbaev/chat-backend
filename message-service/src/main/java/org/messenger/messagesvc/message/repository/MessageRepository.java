@@ -18,4 +18,11 @@ public interface MessageRepository extends JpaRepository<Message, UUID> {
     long countByChatId(UUID chatId);
 
     Optional<Message> findByIdAndChatId(UUID id, UUID chatId);
+    @org.springframework.data.jpa.repository.Modifying
+    @org.springframework.data.jpa.repository.Query(value = """
+            UPDATE messages SET status = 'DELIVERED'
+            WHERE id = :id AND chat_id = :chatId AND status = 'SENT'
+            """, nativeQuery = true)
+    int markDelivered(@org.springframework.data.repository.query.Param("id") UUID id,
+                      @org.springframework.data.repository.query.Param("chatId") UUID chatId);
 }

@@ -1,6 +1,5 @@
 package com.messenger.chatgateway.messaging.service;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.messenger.chatgateway.messaging.dto.MessageDto;
 import com.messenger.chatgateway.messaging.dto.SendError;
 import com.messenger.chatgateway.messaging.kafka.KafkaProducerService;
@@ -25,7 +24,6 @@ public class ChatService {
     private final KafkaProducerService kafkaProducerService;
     private final SimpMessagingTemplate messagingTemplate;
 
-    private final ObjectMapper objectMapper;
 
     public void processMessage(MessageDto messageDto, String userId) {
         UUID chatId = messageDto.chatId() != null ? messageDto.chatId() : UUID.randomUUID();
@@ -59,20 +57,4 @@ public class ChatService {
         messagingTemplate.convertAndSendToUser(eventDto.recipientId().toString(), QUEUE_MESSAGES_DEST, eventDto);
     }
 
-    public void sendOfflineMessages(List<String> offlineMessages) {
-
-        offlineMessages
-                .forEach(json -> {
-                    try {
-                        this.sendMessage(
-                                objectMapper.readValue(
-                                        json,
-                                        MessageDeliveredEvent.class
-                        ));
-
-                    } catch (Exception e) {
-                        log.error("Failed to parse offline message: {}", json, e);
-                    }
-                });
-    }
 }

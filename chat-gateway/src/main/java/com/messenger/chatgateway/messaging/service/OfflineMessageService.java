@@ -1,37 +1,36 @@
 package com.messenger.chatgateway.messaging.service;
 
-import com.messenger.chatgateway.caching.service.RedisService;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import org.chat.shared.caching.PendingMessageScripts;
+import org.chat.shared.caching.RedisConstants;
+import org.chat.shared.kafka.event.MessageDeliveredEvent;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.stereotype.Service;
-
+import java.util.Comparator;
 import java.util.List;
 
 @Service
 @RequiredArgsConstructor
 public class OfflineMessageService {
+    private final StringRedisTemplate redis;
+    private final ObjectMapper mapper;
+    private static final RedisScript<List> READ = RedisScript.of(PendingMessageScripts.READ, List.class);
 
-    private final RedisService redisService;
-
-    private static final RedisScript<List> GET_AND_DELETE_SCRIPT =
-            RedisScript.of("""
-                local messages = redis.call(
-                    'LRANGE',
-                    KEYS[1],
-                    0,
-                    -1
-                )
-
-                redis.call(
-                    'DEL',
-                    KEYS[1]
-                )
-
-                return messages
-            """, List.class);
-
-    public List<String> getAndDelete(String key) {
-        return redisService.executeScript(key, GET_AND_DELETE_SCRIPT);
+    public List<MessageDeliveredEvent> readPending(String userId) {
+        List<?> values = redis.execute(READ, List.of(RedisConstants.OFFLINE_KEY.formatted(userId)));
+        if (values == null) return List.of();
+        return values.stream().map(value -> parse((String) value))
+                .sorted(Comparator.comparing(MessageDeliveredEvent::createdAt)
+                        .thenComparing(MessageDeliveredEvent::messageId)).toList();
     }
 
+    private MessageDeliveredEvent parse(String json) {
+        try {
+            return mapper.readValue(json, MessageDeliveredEvent.class);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            throw new IllegalArgumentException("Invalid pending message; kept in Redis", e);
+        }
+    }
 }

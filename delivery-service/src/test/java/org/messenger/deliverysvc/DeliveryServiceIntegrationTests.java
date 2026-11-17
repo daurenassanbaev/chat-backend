@@ -59,7 +59,7 @@ class DeliveryServiceIntegrationTests extends KafkaRedisIntegrationTest {
                 .get(10, TimeUnit.SECONDS);
 
         Awaitility.await().atMost(Duration.ofSeconds(20)).untilAsserted(() -> {
-            var queued = redisTemplate.opsForList().range(offlineKey, 0, -1);
+            var queued = redisTemplate.<String, String>opsForHash().values(offlineKey);
             assertThat(queued).isNotNull().anySatisfy(json ->
                     assertThat(json).contains(event.messageId().toString()).contains(event.content()));
         });
@@ -103,6 +103,36 @@ class DeliveryServiceIntegrationTests extends KafkaRedisIntegrationTest {
                     value -> value.contains(event.messageId().toString()), Duration.ofSeconds(20)))
                     .contains("invalid-recipient");
         }
+    }
+
+    @Test
+    void repeatedEventUsesOneHashFieldAndRefreshesTtl() throws Exception {
+        var event = event();
+        var service = applicationService();
+        service.processMessageEvent(event);
+        service.processMessageEvent(event);
+        String key = RedisConstants.OFFLINE_KEY.formatted(event.recipientId());
+        assertThat(redisTemplate.opsForHash().size(key)).isEqualTo(1);
+        assertThat(redisTemplate.getExpire(key)).isBetween(2591900L, 2592000L);
+    }
+
+    @Autowired
+    private org.messenger.deliverysvc.delivery.service.DeliveryService deliveryService;
+    private org.messenger.deliverysvc.delivery.service.DeliveryService applicationService() {
+        return deliveryService;
+    }
+
+    @Test
+    void existingListIsMigratedWithoutDroppingMessages() throws Exception {
+        var old = event();
+        String key = RedisConstants.OFFLINE_KEY.formatted(old.recipientId());
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules();
+        redisTemplate.opsForList().rightPush(key, mapper.writeValueAsString(old));
+        var next = new MessageSavedEvent(UUID.randomUUID(), old.chatId(), old.senderId(), old.recipientId(),
+                "next", Instant.now());
+        deliveryService.processMessageEvent(next);
+        assertThat(redisTemplate.opsForHash().size(key)).isEqualTo(2);
+        assertThat(redisTemplate.opsForHash().hasKey(key, old.messageId().toString())).isTrue();
     }
 
     private MessageSavedEvent event() {

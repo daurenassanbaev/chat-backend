@@ -129,15 +129,9 @@ class MessageServiceIntegrationTests extends PostgresKafkaRedisIntegrationTest {
         Awaitility.await().atMost(Duration.ofSeconds(30)).untilAsserted(() ->
                 assertThat(messageRepository.findById(sent.messageId())).isPresent());
 
-        MessageDeliveredEvent delivered = MessageDeliveredEvent.builder()
-                .messageId(sent.messageId())
-                .chatId(sent.chatId())
-                .senderId(sent.senderId())
-                .recipientId(sent.recipientIds().getFirst())
-                .content(sent.content())
-                .createdAt(sent.createdAt())
-                .build();
-        kafkaTemplate.send(KafkaTopics.CHAT_DELIVERED, sent.chatId().toString(), delivered)
+        var delivered = new org.chat.shared.kafka.event.MessageReceivedEvent(
+                sent.messageId(), sent.chatId(), sent.recipientIds().getFirst());
+        kafkaTemplate.send(KafkaTopics.CHAT_RECEIVED, sent.chatId().toString(), delivered)
                 .get(10, TimeUnit.SECONDS);
 
         Awaitility.await().atMost(Duration.ofSeconds(30)).untilAsserted(() ->

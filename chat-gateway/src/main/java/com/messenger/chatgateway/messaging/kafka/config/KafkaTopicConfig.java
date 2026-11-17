@@ -21,4 +21,12 @@ public class KafkaTopicConfig {
         return TopicBuilder.name(KafkaTopics.CHAT_DELIVERED + ".dlt")
                 .partitions(3).replicas(1).build();
     }
+    @Bean
+    public NewTopic receivedTopic() {
+        return TopicBuilder.name(KafkaTopics.CHAT_RECEIVED).partitions(3).replicas(1).build();
+    }
+    @Bean
+    public NewTopic receivedDltTopic() {
+        return TopicBuilder.name(KafkaTopics.CHAT_RECEIVED + ".dlt").partitions(3).replicas(1).build();
+    }
 }

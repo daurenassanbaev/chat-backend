@@ -88,6 +88,11 @@ class ChatDeliveryEndToEndIntegrationTest extends PostgresKafkaRedisIntegrationT
             assertThat(deliveredEvent).contains(chatId.toString()).contains(recipientId.toString());
         }
 
+        var pending = chatGateway.getBean(com.messenger.chatgateway.messaging.service.OfflineMessageService.class)
+                .readPending(recipientId.toString());
+        chatGateway.getBean(com.messenger.chatgateway.messaging.service.MessageAckService.class)
+                .acknowledge(recipientId.toString(), pending.getFirst().messageId());
+
         MessageRepository messages = messageService.getBean(MessageRepository.class);
         OutboxRepository outbox = messageService.getBean(OutboxRepository.class);
         Awaitility.await().atMost(Duration.ofSeconds(30)).untilAsserted(() -> {
@@ -101,6 +106,38 @@ class ChatDeliveryEndToEndIntegrationTest extends PostgresKafkaRedisIntegrationT
                     .isNotEmpty()
                     .allMatch(event -> Boolean.TRUE.equals(event.getSent()));
         });
+    }
+
+    @Test
+    void offlineMessageIsReplayedUntilBrowserAcknowledges() throws Exception {
+        UUID sender = UUID.randomUUID();
+        UUID recipient = UUID.randomUUID();
+        UUID chatId = UUID.fromString(createDirectChat(sender, recipient).get("chatId").asText());
+        chatGateway.getBean(ChatService.class).processMessage(
+                new MessageDto(chatId, List.of(recipient), "offline-reconnect"), sender.toString());
+        var pending = chatGateway.getBean(com.messenger.chatgateway.messaging.service.OfflineMessageService.class);
+        Awaitility.await().atMost(Duration.ofSeconds(25)).untilAsserted(() ->
+                assertThat(pending.readPending(recipient.toString())).hasSize(1));
+        UUID messageId = pending.readPending(recipient.toString()).getFirst().messageId();
+        try (var client = new org.messenger.testsupport.StompTestClient(port(chatGateway), recipient.toString())) {
+            client.subscribe();
+            assertThat(client.receive(Duration.ofSeconds(10))).contains(messageId.toString());
+            // Deliberately disconnect without application ACK.
+        }
+        assertThat(pending.readPending(recipient.toString())).hasSize(1);
+        assertThat(messageService.getBean(MessageRepository.class).findById(messageId).orElseThrow().getStatus())
+                .isEqualTo(MessageStatus.SENT);
+        try (var client = new org.messenger.testsupport.StompTestClient(port(chatGateway), recipient.toString())) {
+            client.subscribe();
+            assertThat(client.receive(Duration.ofSeconds(10))).contains(messageId.toString());
+            client.send("/app/messages/ack", "{\"messageId\":\"" + messageId + "\"}");
+            Awaitility.await().atMost(Duration.ofSeconds(15)).untilAsserted(() -> {
+                assertThat(pending.readPending(recipient.toString())).isEmpty();
+                assertThat(messageService.getBean(MessageRepository.class).findById(messageId).orElseThrow().getStatus())
+                        .isEqualTo(MessageStatus.DELIVERED);
+            });
+            client.send("/app/messages/ack", "{\"messageId\":\"" + messageId + "\"}");
+        }
     }
 
     private static JsonNode createDirectChat(UUID senderId, UUID recipientId) throws Exception {

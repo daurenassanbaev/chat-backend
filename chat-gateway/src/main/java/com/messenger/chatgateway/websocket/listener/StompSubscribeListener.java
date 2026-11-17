@@ -32,12 +32,7 @@ public class StompSubscribeListener {
         }
         String userId = StompSessionUtils.getUserIdFromEvent(event);
 
-        String offlineMsgKey = OFFLINE_KEY.formatted(userId);
-        List<String> offlineMessages = offlineMessageService.getAndDelete(offlineMsgKey);
-
-        if (offlineMessages != null && !offlineMessages.isEmpty()) {
-            chatService.sendOfflineMessages(offlineMessages);
-        }
+        offlineMessageService.readPending(userId).forEach(chatService::sendMessage);
 
         redisService.setTtl(ONLINE_KEY.formatted(userId), Duration.ofSeconds(60));
     }

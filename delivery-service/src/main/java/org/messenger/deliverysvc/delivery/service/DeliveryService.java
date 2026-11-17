@@ -7,6 +7,10 @@ import org.chat.shared.kafka.event.MessageSavedEvent;
 import org.messenger.deliverysvc.caching.service.RedisService;
 import org.messenger.deliverysvc.delivery.kafka.KafkaProducerService;
 import org.springframework.stereotype.Service;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.RedisScript;
+import org.chat.shared.caching.PendingMessageScripts;
+import java.util.List;
 
 import java.util.Objects;
 
@@ -20,24 +24,20 @@ public class DeliveryService {
     private final RedisService redisService;
 
     private final ObjectMapper objectMapper;
+    private final StringRedisTemplate redis;
+    private static final RedisScript<Long> SAVE_PENDING = RedisScript.of(PendingMessageScripts.SAVE, Long.class);
 
     public void processMessageEvent(MessageSavedEvent eventDto) {
-        String key = ONLINE_KEY.formatted(eventDto.recipientId());
-        String onlineVal = redisService.get(key);
-
-        if (Objects.isNull(onlineVal)) {
-            String offlineKey = OFFLINE_KEY.formatted(eventDto.recipientId());
-            try {
-                String json = objectMapper.writeValueAsString(this.buildMessageDeliveredEvent(eventDto));
-                redisService.rPush(offlineKey, json);
-            } catch (Exception e) {
-                throw new RuntimeException(e);
-            }
-
-            return;
+        MessageDeliveredEvent delivered = buildMessageDeliveredEvent(eventDto);
+        try {
+            redis.execute(SAVE_PENDING, List.of(OFFLINE_KEY.formatted(eventDto.recipientId())),
+                    eventDto.messageId().toString(), objectMapper.writeValueAsString(delivered));
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            throw new IllegalArgumentException("Cannot serialize pending message", e);
         }
-
-        producerService.sendDeliveredEvent(this.buildMessageDeliveredEvent(eventDto));
+        if (redisService.get(ONLINE_KEY.formatted(eventDto.recipientId())) != null) {
+            producerService.sendDeliveredEvent(delivered);
+        }
     }
 
     private MessageDeliveredEvent buildMessageDeliveredEvent(MessageSavedEvent eventDto) {

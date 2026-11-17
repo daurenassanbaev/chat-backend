@@ -610,7 +610,9 @@
                 stompClient.subscribe('/user/queue/messages' , (frame) => {
                     try {
                         const payload = JSON.parse(frame.body);
-                        if (!payload.chatId || !payload.senderId) return;
+                        if (!payload.chatId || !payload.senderId || !payload.messageId) return;
+                        stompClient.publish({destination: '/app/messages/ack',
+                            body: JSON.stringify({messageId: payload.messageId})});
                         upsertChatPreview(payload.chatId, payload.senderId, payload.content, payload.createdAt);
                         if (payload.chatId === activeChatId) {
                             appendMessage(payload.content, 'received', payload.createdAt, payload.messageId);
@@ -864,6 +866,7 @@
     // FIX: added optional id param to track last known message
     function appendMessage(text, type, time, id) {
         const container = document.getElementById('messages');
+        if (id && container.querySelector(`[data-msg-id="${id}"]`)) return;
         const row    = document.createElement('div');
         row.classList.add('msg-row', type);
         if (id) row.dataset.msgId = id;

@@ -4,7 +4,7 @@ import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.chat.shared.kafka.event.MessageSentEvent;
-import org.chat.shared.kafka.event.MessageDeliveredEvent;
+import org.chat.shared.kafka.event.MessageReceivedEvent;
 import org.springframework.boot.kafka.autoconfigure.KafkaProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -43,16 +43,16 @@ public class KafkaConsumerConfig {
     }
 
     @Bean
-    public ConcurrentKafkaListenerContainerFactory<String, MessageDeliveredEvent> deliveredEventListenerContainerFactory(
+    public ConcurrentKafkaListenerContainerFactory<String, MessageReceivedEvent> deliveredEventListenerContainerFactory(
             KafkaProperties kafkaProperties,
             DefaultErrorHandler errorHandler
     ) {
         Map<String, Object> consumerProperties = new HashMap<>(kafkaProperties.buildConsumerProperties());
-        consumerProperties.put(JsonDeserializer.VALUE_DEFAULT_TYPE, MessageDeliveredEvent.class.getName());
-        ConsumerFactory<String, MessageDeliveredEvent> consumerFactory =
+        consumerProperties.put(JsonDeserializer.VALUE_DEFAULT_TYPE, MessageReceivedEvent.class.getName());
+        ConsumerFactory<String, MessageReceivedEvent> consumerFactory =
                 new DefaultKafkaConsumerFactory<>(consumerProperties);
 
-        ConcurrentKafkaListenerContainerFactory<String, MessageDeliveredEvent> factory =
+        ConcurrentKafkaListenerContainerFactory<String, MessageReceivedEvent> factory =
                 new ConcurrentKafkaListenerContainerFactory<>();
         factory.setConsumerFactory(consumerFactory);
         factory.setConcurrency(3);

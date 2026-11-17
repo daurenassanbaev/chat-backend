@@ -31,8 +31,8 @@ class ChatGatewayIntegrationTests extends KafkaRedisIntegrationTest {
     @Autowired
     private ChatService chatService;
 
-    @Autowired
-    private KafkaTemplate<Object, Object> kafkaTemplate;
+    @MockitoSpyBean(name = "kafkaTemplate")
+    private KafkaTemplate kafkaTemplate;
 
     @MockitoSpyBean
     private SimpMessagingTemplate messagingTemplate;
@@ -106,5 +106,29 @@ class ChatGatewayIntegrationTests extends KafkaRedisIntegrationTest {
                             com.messenger.chatgateway.messaging.dto.SendError error
                             && clientId.equals(error.clientMessageId())));
         }
+    }
+    @Autowired
+    private org.springframework.data.redis.core.StringRedisTemplate redis;
+    @Autowired
+    private com.messenger.chatgateway.messaging.service.MessageAckService ackService;
+
+    @Test
+    void failedAckPublicationKeepsPendingMessage() throws Exception {
+        UUID recipient = UUID.randomUUID();
+        UUID id = UUID.randomUUID();
+        var event = new MessageDeliveredEvent(id, UUID.randomUUID(), UUID.randomUUID(), recipient,
+                "pending", Instant.now());
+        String key = org.chat.shared.caching.RedisConstants.OFFLINE_KEY.formatted(recipient);
+        redis.opsForHash().put(key, id.toString(), objectMapper.writeValueAsString(event));
+        org.mockito.Mockito.doAnswer(call -> {
+            if (KafkaTopics.CHAT_RECEIVED.equals(call.getArgument(0))) {
+                return java.util.concurrent.CompletableFuture.failedFuture(new IllegalStateException("Kafka down"));
+            }
+            return call.callRealMethod();
+        }).when(kafkaTemplate).send(org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> ackService.acknowledge(recipient.toString(), id))
+                .isInstanceOf(IllegalStateException.class);
+        assertThat(redis.opsForHash().hasKey(key, id.toString())).isTrue();
     }
 }
