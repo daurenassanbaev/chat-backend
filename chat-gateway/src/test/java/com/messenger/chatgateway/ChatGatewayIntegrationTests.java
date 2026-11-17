@@ -37,6 +37,18 @@ class ChatGatewayIntegrationTests extends KafkaRedisIntegrationTest {
     @MockitoSpyBean
     private SimpMessagingTemplate messagingTemplate;
 
+    @Autowired
+    private com.fasterxml.jackson.databind.ObjectMapper objectMapper;
+
+    @Test
+    void readsOfflineJsonWithInstant() throws Exception {
+        Instant createdAt = Instant.parse("2026-11-17T10:00:00Z");
+        String json = "{\"createdAt\":\"" + createdAt + "\"}";
+        assertThat(objectMapper.readValue(json, MessageDeliveredEvent.class).createdAt())
+                .isEqualTo(createdAt);
+        assertThat(objectMapper.writeValueAsString(createdAt)).isEqualTo("\"" + createdAt + "\"");
+    }
+
     @Test
     void acceptsChatMessageAndPublishesItToKafka() {
         UUID chatId = UUID.randomUUID();

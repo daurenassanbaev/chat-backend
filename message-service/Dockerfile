@@ -5,7 +5,7 @@ WORKDIR /app
 COPY . .
 
 RUN chmod +x gradlew
-RUN ./gradlew :message-service:build -x test
+RUN ./gradlew :message-service:bootJar
 
 FROM eclipse-temurin:21-jre
 
@@ -15,6 +15,6 @@ RUN apt-get update \
 
 WORKDIR /app
 
-COPY --from=builder /app/message-service/build/libs/*.jar app.jar
+COPY --from=builder /app/message-service/build/libs/app.jar app.jar
 
 ENTRYPOINT ["java", "-jar", "app.jar"]
