@@ -1,7 +1,8 @@
 package com.messenger.chatgateway.messaging.service;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.messenger.chatgateway.messaging.dto.MessageDto;
+import com.messenger.chatgateway.messaging.dto.SendAccepted;
+import com.messenger.chatgateway.messaging.dto.SendError;
 import com.messenger.chatgateway.messaging.kafka.KafkaProducerService;
 import com.messenger.chatgateway.messaging.util.mapper.MessageMapper;
 import lombok.RequiredArgsConstructor;
@@ -11,7 +12,6 @@ import org.chat.shared.kafka.event.MessageSentEvent;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 
-import java.util.List;
 import java.util.UUID;
 
 @Service
@@ -24,7 +24,6 @@ public class ChatService {
     private final KafkaProducerService kafkaProducerService;
     private final SimpMessagingTemplate messagingTemplate;
 
-    private final ObjectMapper objectMapper;
 
     public void processMessage(MessageDto messageDto, String userId) {
         UUID chatId = messageDto.chatId() != null ? messageDto.chatId() : UUID.randomUUID();
@@ -35,29 +34,30 @@ public class ChatService {
                 messageDto
         );
 
-        kafkaProducerService.sendMessageSentEvent(eventDto);
+        try {
+            kafkaProducerService.sendMessageSentEvent(eventDto).whenComplete((result, error) -> {
+                if (error != null) {
+                    reportSendFailure(userId, messageDto.clientMessageId(), error);
+                } else {
+                    messagingTemplate.convertAndSendToUser(userId, "/queue/send-results",
+                            new SendAccepted(
+                                    messageDto.clientMessageId(), eventDto.messageId()));
+                    log.info("Message queued in Kafka: {}", eventDto.messageId());
+                }
+            });
+        } catch (RuntimeException error) {
+            reportSendFailure(userId, messageDto.clientMessageId(), error);
+        }
+    }
 
-        log.info("Message sent to Kafka: {}", eventDto);
+    private void reportSendFailure(String userId, UUID clientMessageId, Throwable error) {
+        log.warn("Kafka send failed for client message {}", clientMessageId, error);
+        messagingTemplate.convertAndSendToUser(userId, "/queue/errors",
+                new SendError(clientMessageId, "Не отправлено: ошибка Kafka или результат неизвестен"));
     }
 
     public void sendMessage(MessageDeliveredEvent eventDto) {
         messagingTemplate.convertAndSendToUser(eventDto.recipientId().toString(), QUEUE_MESSAGES_DEST, eventDto);
     }
 
-    public void sendOfflineMessages(List<String> offlineMessages) {
-
-        offlineMessages
-                .forEach(json -> {
-                    try {
-                        this.sendMessage(
-                                objectMapper.readValue(
-                                        json,
-                                        MessageDeliveredEvent.class
-                        ));
-
-                    } catch (Exception e) {
-                        log.error("Failed to parse offline message: {}", json, e);
-                    }
-                });
-    }
 }
