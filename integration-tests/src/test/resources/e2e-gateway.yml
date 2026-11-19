@@ -1,9 +1,4 @@
 spring:
-  # The E2E launcher shares message-service's security dependencies.
-  autoconfigure:
-    exclude:
-      - org.springframework.boot.security.autoconfigure.web.servlet.ServletWebSecurityAutoConfiguration
-      - org.springframework.boot.security.autoconfigure.actuate.web.servlet.ManagementWebSecurityAutoConfiguration
   kafka:
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer

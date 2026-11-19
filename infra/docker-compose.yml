@@ -117,6 +117,8 @@ services:
       start_period: 30s
 
   chat-gateway:
+    environment:
+      CHAT_JWKS_URI: http://keycloak:8080/realms/chat/protocol/openid-connect/certs
     build:
       context: ..
       dockerfile: chat-gateway/Dockerfile

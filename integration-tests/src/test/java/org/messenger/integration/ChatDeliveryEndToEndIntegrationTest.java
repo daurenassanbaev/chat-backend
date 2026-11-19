@@ -127,7 +127,7 @@ class ChatDeliveryEndToEndIntegrationTest extends PostgresKafkaRedisIntegrationT
         Awaitility.await().atMost(Duration.ofSeconds(25)).untilAsserted(() ->
                 assertThat(pending.readPending(recipient.toString())).hasSize(1));
         UUID messageId = pending.readPending(recipient.toString()).getFirst().messageId();
-        try (var client = new StompTestClient(port(chatGateway), recipient.toString())) {
+        try (var client = new StompTestClient(port(chatGateway), tokens.token(recipient.toString()))) {
             client.subscribe();
             assertThat(client.receive(Duration.ofSeconds(10))).contains(messageId.toString());
             // Deliberately disconnect without application ACK.
@@ -135,7 +135,7 @@ class ChatDeliveryEndToEndIntegrationTest extends PostgresKafkaRedisIntegrationT
         assertThat(pending.readPending(recipient.toString())).hasSize(1);
         assertThat(messageService.getBean(MessageRepository.class).findById(messageId).orElseThrow().getStatus())
                 .isEqualTo(MessageStatus.SENT);
-        try (var client = new StompTestClient(port(chatGateway), recipient.toString())) {
+        try (var client = new StompTestClient(port(chatGateway), tokens.token(recipient.toString()))) {
             client.subscribe();
             assertThat(client.receive(Duration.ofSeconds(10))).contains(messageId.toString());
             client.send("/app/messages/ack", "{\"messageId\":\"" + messageId + "\"}");
@@ -175,12 +175,10 @@ class ChatDeliveryEndToEndIntegrationTest extends PostgresKafkaRedisIntegrationT
                 .map(entry -> "--" + entry.getKey() + "=" + entry.getValue())
                 .collect(Collectors.toCollection(ArrayList::new));
         arguments.add("--spring.config.location=classpath:/" + configFile);
-        if (application == MessageServiceApplication.class) {
+        if (web) {
             arguments.add("--spring.security.oauth2.resourceserver.jwt.audiences=chat-api");
             arguments.add("--spring.security.oauth2.resourceserver.jwt.issuer-uri=" + tokens.issuer());
             arguments.add("--spring.security.oauth2.resourceserver.jwt.jwk-set-uri=" + tokens.issuer() + "/certs");
-        }
-        if (web) {
             arguments.add("--server.port=0");
         } else {
             arguments.add("--spring.main.web-application-type=none");

@@ -1,4 +1,11 @@
 spring:
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          audiences: chat-api
+          issuer-uri: ${CHAT_ISSUER_URI:http://localhost:8083/realms/chat}
+          jwk-set-uri: ${CHAT_JWKS_URI:${spring.security.oauth2.resourceserver.jwt.issuer-uri}/protocol/openid-connect/certs}
   application:
     name: chat-gateway
 
