@@ -1,6 +1,7 @@
 package com.messenger.chatgateway.websocket.config;
 
 import lombok.RequiredArgsConstructor;
+import com.messenger.chatgateway.presence.service.PresenceSubscriptionInterceptor;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.messaging.simp.config.MessageBrokerRegistry;
 import org.springframework.messaging.simp.config.ChannelRegistration;
@@ -14,10 +15,11 @@ import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerCo
 public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     private final StompAuthenticationInterceptor authentication;
+    private final PresenceSubscriptionInterceptor presenceSubscriptions;
 
     @Override
     public void configureClientInboundChannel(ChannelRegistration registration) {
-        registration.interceptors(authentication);
+        registration.interceptors(authentication, presenceSubscriptions);
     }
 
     @Override

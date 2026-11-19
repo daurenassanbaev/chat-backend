@@ -97,6 +97,23 @@ class PresenceIntegrationTests extends KafkaRedisIntegrationTest {
     }
 
     @Test
+    void lateSubscriberSeesExistingSessionAndItsDisconnect() throws Exception {
+        String peerId = UUID.randomUUID().toString();
+        service.heartbeat(peerId, "already-connected");
+        try (var watcher = new StompTestClient(port, tokens.token(UUID.randomUUID().toString()))) {
+            watcher.subscribe("/topic/presence." + peerId);
+            var mapper = new ObjectMapper();
+            var initial = mapper.readTree(watcher.receive(Duration.ofSeconds(5)));
+            assertThat(initial.path("userId").asText()).isEqualTo(peerId);
+            assertThat(initial.path("status").asText()).isEqualTo("online");
+
+            service.disconnected(peerId, "already-connected");
+            assertThat(mapper.readTree(watcher.receive(Duration.ofSeconds(5))).path("status").asText())
+                    .isEqualTo("offline");
+        }
+    }
+
+    @Test
     void repeatedDisconnectDoesNotRemoveOtherSession() {
         String user = UUID.randomUUID().toString();
         service.heartbeat(user, "A");

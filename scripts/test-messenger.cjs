@@ -129,7 +129,7 @@ test('each STOMP connection takes the current token; refresh reconnects the sock
             forceDisconnect() { disconnects++; }
         }};
         dom.window.SockJS = class { constructor(url) { this.url = url; } };
-        dom.window.fetch = async () => ({status:200, json:async()=>[]});
+        dom.window.fetch = async () => ({status:200, ok:true, json:async()=>[]});
         const adapter = {init:async()=>true, subject:'alice', token:'first', timeSkew:0,
             tokenParsed:{exp: Date.now() / 1000 + 600}, updateToken:async()=>false};
         await dom.window.initializeAuth(adapter);
@@ -170,5 +170,37 @@ test('username results ignore stale responses and open the selected peer by id',
         await results[0].onclick();
         assert.equal(recipient, 'peer-id');
         assert.equal(w.document.getElementById('peerName').textContent, 'bob');
+    } finally { dom.window.close(); }
+});
+
+test('late username updates the open header and sidebar without replacing newer messages or presence', async () => {
+    const dom = page();
+    try {
+        const w = dom.window;
+        w.runForTest(`activePeerId='bob-id'; upsertChatPreview(activeChatId, activePeerId, 'new message');
+            renderPeerName(); showPresence(true)`);
+        assert.equal(w.document.getElementById('peerName').textContent, 'Собеседник');
+        w.fetch = async () => ({ok:true,json:async()=>[{chatId:'chat-A',peerId:'bob-id',peerUsername:'bob',lastMessageContent:'older'}]});
+        await w.refreshMissingNames();
+        assert.equal(w.document.getElementById('peerName').textContent, 'bob');
+        assert.equal(w.document.querySelector('.chat-item-name').textContent, 'bob');
+        assert.equal(w.document.querySelector('.chat-item-preview').textContent, 'new message');
+        assert.equal(w.document.querySelector('.online-dot').style.display, 'block');
+    } finally { dom.window.close(); }
+});
+
+test('history refresh and a late presence snapshot preserve the latest online event', async () => {
+    const dom = page();
+    try {
+        const w = dom.window;
+        const callbacks = {};
+        w.runForTest('activePeerId="alice"; stompClient={}');
+        w.runForTest('stompClient').subscribe = (path, callback) => { callbacks[path] = callback; return {unsubscribe(){}}; };
+        w.subscribeToPresence('alice');
+        callbacks['/topic/presence.alice']({headers:{},body:JSON.stringify({userId:'alice',status:'online'})});
+        callbacks['/topic/presence.alice']({headers:{'presence-snapshot':'true'},body:JSON.stringify({userId:'alice',status:'offline'})});
+        w.fetch = async () => ({ok:true,json:async()=>({content:[]})});
+        await w.refreshMessages();
+        assert.equal(w.document.getElementById('peerStatus').textContent, 'online');
     } finally { dom.window.close(); }
 });
