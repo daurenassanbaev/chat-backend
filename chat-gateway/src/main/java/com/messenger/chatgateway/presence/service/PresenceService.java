@@ -41,6 +41,13 @@ public class PresenceService {
             return 0
             """, Long.class);
 
+    public PresenceEvent currentStatus(String userId) {
+        Long sessions = redis.opsForZSet().count(RedisConstants.PRESENCE_SESSIONS_KEY.formatted(userId),
+                System.currentTimeMillis() + 1d, Double.POSITIVE_INFINITY);
+        UserStatus status = sessions != null && sessions > 0 ? UserStatus.ONLINE : UserStatus.OFFLINE;
+        return new PresenceEvent(userId, status.getValue());
+    }
+
     public void heartbeat(String userId, String sessionId) {
         long now = System.currentTimeMillis();
         Long changed = redis.execute(TOUCH, List.of(RedisConstants.PRESENCE_SESSIONS_KEY.formatted(userId)),

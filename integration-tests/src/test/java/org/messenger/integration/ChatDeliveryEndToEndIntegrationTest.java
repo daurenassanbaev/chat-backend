@@ -21,6 +21,7 @@ import org.messenger.messagesvc.status.entity.MessageStatus;
 import org.messenger.testsupport.KafkaRecordReader;
 import org.messenger.testsupport.PostgresKafkaRedisIntegrationTest;
 import org.messenger.testsupport.StompTestClient;
+import org.messenger.testsupport.TestTokenIssuer;
 import org.springframework.boot.WebApplicationType;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.context.ConfigurableApplicationContext;
@@ -46,6 +47,8 @@ class ChatDeliveryEndToEndIntegrationTest extends PostgresKafkaRedisIntegrationT
     private static ConfigurableApplicationContext chatGateway;
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper().findAndRegisterModules();
 
+    private static final TestTokenIssuer tokens = new TestTokenIssuer();
+
     @BeforeAll
     static void startServices() {
         Map<String, Object> infrastructure = Map.of(
@@ -68,6 +71,7 @@ class ChatDeliveryEndToEndIntegrationTest extends PostgresKafkaRedisIntegrationT
         close(chatGateway);
         close(deliveryService);
         close(messageService);
+        tokens.close();
     }
 
     @Test
@@ -123,7 +127,7 @@ class ChatDeliveryEndToEndIntegrationTest extends PostgresKafkaRedisIntegrationT
         Awaitility.await().atMost(Duration.ofSeconds(25)).untilAsserted(() ->
                 assertThat(pending.readPending(recipient.toString())).hasSize(1));
         UUID messageId = pending.readPending(recipient.toString()).getFirst().messageId();
-        try (var client = new StompTestClient(port(chatGateway), recipient.toString())) {
+        try (var client = new StompTestClient(port(chatGateway), tokens.token(recipient.toString()))) {
             client.subscribe();
             assertThat(client.receive(Duration.ofSeconds(10))).contains(messageId.toString());
             // Deliberately disconnect without application ACK.
@@ -131,7 +135,7 @@ class ChatDeliveryEndToEndIntegrationTest extends PostgresKafkaRedisIntegrationT
         assertThat(pending.readPending(recipient.toString())).hasSize(1);
         assertThat(messageService.getBean(MessageRepository.class).findById(messageId).orElseThrow().getStatus())
                 .isEqualTo(MessageStatus.SENT);
-        try (var client = new StompTestClient(port(chatGateway), recipient.toString())) {
+        try (var client = new StompTestClient(port(chatGateway), tokens.token(recipient.toString()))) {
             client.subscribe();
             assertThat(client.receive(Duration.ofSeconds(10))).contains(messageId.toString());
             client.send("/app/messages/ack", "{\"messageId\":\"" + messageId + "\"}");
@@ -147,7 +151,7 @@ class ChatDeliveryEndToEndIntegrationTest extends PostgresKafkaRedisIntegrationT
     private static JsonNode createDirectChat(UUID senderId, UUID recipientId) throws Exception {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.set("user-id", senderId.toString());
+        headers.setBearerAuth(tokens.token(senderId.toString()));
         HttpEntity<String> request = new HttpEntity<>(
                 OBJECT_MAPPER.writeValueAsString(Map.of("recipientId", recipientId)), headers);
         var response = new RestTemplate().exchange(
@@ -172,6 +176,9 @@ class ChatDeliveryEndToEndIntegrationTest extends PostgresKafkaRedisIntegrationT
                 .collect(Collectors.toCollection(ArrayList::new));
         arguments.add("--spring.config.location=classpath:/" + configFile);
         if (web) {
+            arguments.add("--spring.security.oauth2.resourceserver.jwt.audiences=chat-api");
+            arguments.add("--spring.security.oauth2.resourceserver.jwt.issuer-uri=" + tokens.issuer());
+            arguments.add("--spring.security.oauth2.resourceserver.jwt.jwk-set-uri=" + tokens.issuer() + "/certs");
             arguments.add("--server.port=0");
         } else {
             arguments.add("--spring.main.web-application-type=none");

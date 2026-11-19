@@ -10,7 +10,7 @@ function page() {
     const dom = new JSDOM(html, {url: 'http://localhost:8080', runScripts: 'outside-only'});
     const script = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].at(-1)[1];
     dom.window.eval(script + '\nwindow.runForTest = code => eval(code);');
-    dom.window.runForTest(`currentUser='00000000-0000-4000-8000-000000000001'; activeChatId='chat-A';`);
+    dom.window.runForTest(`auth={token:'test-token',updateToken:async()=>false};currentUser='00000000-0000-4000-8000-000000000001'; activeChatId='chat-A';`);
     return dom;
 }
 
@@ -63,6 +63,7 @@ test('late history response from previous chat cannot change current messages', 
         dom.window.fetch = () => new Promise(resolve => { release = resolve; });
         const pending = dom.window.loadMessages('chat-A');
         dom.window.runForTest(`activeChatId='chat-B'; chatGeneration++`);
+        await new Promise(resolve => setImmediate(resolve));
         release({ok:true,json:async()=>({content:[{id:'old',content:'wrong chat',senderId:'peer'}]})});
         await pending;
         assert.equal(dom.window.document.querySelectorAll('#messages .msg-row').length, 0);
@@ -76,6 +77,7 @@ test('A to B to A rejects the response from the first visit to A', async () => {
         dom.window.fetch = () => new Promise(resolve => { release = resolve; });
         const pending = dom.window.loadMessages('chat-A');
         dom.window.runForTest(`chatGeneration+=2; activeChatId='chat-A'`);
+        await new Promise(resolve => setImmediate(resolve));
         release({ok:true,json:async()=>({content:[{id:'old',content:'stale',senderId:'peer'}]})});
         await pending;
         assert.equal(dom.window.document.querySelectorAll('#messages .msg-row').length, 0);
@@ -97,5 +99,108 @@ test('reopening a chat with stored history clears the queued placeholder state',
         await dom.window.loadMessages('chat-A');
         assert.equal(dom.window.document.querySelectorAll('#messages .msg-row').length, 1);
         assert.equal(dom.window.document.querySelectorAll('.send-state').length, 0);
+    } finally { dom.window.close(); }
+});
+
+test('REST sends a bearer token and a 401 starts one new login', async () => {
+    const dom = page();
+    try {
+        let logins = 0;
+        dom.window.runForTest('auth').login = async options => {
+            assert.equal(options.prompt, 'login');
+            logins++;
+        };
+        dom.window.fetch = async (url, options) => {
+            assert.equal(options.headers.Authorization, 'Bearer test-token');
+            return {status: 401};
+        };
+        await Promise.all([1, 2].map(() => assert.rejects(dom.window.apiFetch('/chats'), /Требуется вход/)));
+        assert.equal(logins, 1);
+    } finally { dom.window.close(); }
+});
+
+test('each STOMP connection takes the current token; refresh reconnects the socket', async () => {
+    const dom = page();
+    try {
+        let client, disconnects = 0;
+        dom.window.StompJs = {Client: class {
+            constructor(options) { Object.assign(this, options); client = this; }
+            activate() {}
+            forceDisconnect() { disconnects++; }
+        }};
+        dom.window.SockJS = class { constructor(url) { this.url = url; } };
+        dom.window.fetch = async () => ({status:200, ok:true, json:async()=>[]});
+        const adapter = {init:async()=>true, subject:'alice', token:'first', timeSkew:0,
+            tokenParsed:{exp: Date.now() / 1000 + 600}, updateToken:async()=>false};
+        await dom.window.initializeAuth(adapter);
+        assert.equal(client.webSocketFactory().url, 'http://localhost:8080/ws');
+        await client.beforeConnect();
+        assert.equal(client.connectHeaders.Authorization, 'Bearer first');
+        client.connected = true;
+        adapter.token = 'second';
+        adapter.onAuthRefreshSuccess();
+        assert.equal(disconnects, 1);
+        await client.beforeConnect();
+        assert.equal(client.connectHeaders.Authorization, 'Bearer second');
+    } finally { dom.window.close(); }
+});
+
+test('username results ignore stale responses and open the selected peer by id', async () => {
+    const dom = page();
+    try {
+        const w = dom.window;
+        let finishOld;
+        let recipient;
+        w.fetch = async (url, options) => {
+            if (url.endsWith('q=old')) return new Promise(resolve => { finishOld = resolve; });
+            if (url.endsWith('q=bo')) return {ok:true, json:async()=>[{id:'peer-id', username:'bob'}]};
+            if (url.endsWith('/direct')) {
+                recipient = JSON.parse(options.body).recipientId;
+                return {ok:true, json:async()=>({chatId:'chat-B', peerId:recipient})};
+            }
+            return {ok:true, json:async()=>({content:[]})};
+        };
+        const old = w.searchUsers('old', w.runForTest('++searchVersion'));
+        await w.searchUsers('bo', w.runForTest('++searchVersion'));
+        finishOld({ok:true, json:async()=>[{id:'old-id', username:'old'}]});
+        await old;
+        const results = w.document.querySelectorAll('#userResults button');
+        assert.equal(results.length, 1);
+        assert.equal(results[0].textContent, 'bob');
+        await results[0].onclick();
+        assert.equal(recipient, 'peer-id');
+        assert.equal(w.document.getElementById('peerName').textContent, 'bob');
+    } finally { dom.window.close(); }
+});
+
+test('late username updates the open header and sidebar without replacing newer messages or presence', async () => {
+    const dom = page();
+    try {
+        const w = dom.window;
+        w.runForTest(`activePeerId='bob-id'; upsertChatPreview(activeChatId, activePeerId, 'new message');
+            renderPeerName(); showPresence(true)`);
+        assert.equal(w.document.getElementById('peerName').textContent, 'Собеседник');
+        w.fetch = async () => ({ok:true,json:async()=>[{chatId:'chat-A',peerId:'bob-id',peerUsername:'bob',lastMessageContent:'older'}]});
+        await w.refreshMissingNames();
+        assert.equal(w.document.getElementById('peerName').textContent, 'bob');
+        assert.equal(w.document.querySelector('.chat-item-name').textContent, 'bob');
+        assert.equal(w.document.querySelector('.chat-item-preview').textContent, 'new message');
+        assert.equal(w.document.querySelector('.online-dot').style.display, 'block');
+    } finally { dom.window.close(); }
+});
+
+test('history refresh and a late presence snapshot preserve the latest online event', async () => {
+    const dom = page();
+    try {
+        const w = dom.window;
+        const callbacks = {};
+        w.runForTest('activePeerId="alice"; stompClient={}');
+        w.runForTest('stompClient').subscribe = (path, callback) => { callbacks[path] = callback; return {unsubscribe(){}}; };
+        w.subscribeToPresence('alice');
+        callbacks['/topic/presence.alice']({headers:{},body:JSON.stringify({userId:'alice',status:'online'})});
+        callbacks['/topic/presence.alice']({headers:{'presence-snapshot':'true'},body:JSON.stringify({userId:'alice',status:'offline'})});
+        w.fetch = async () => ({ok:true,json:async()=>({content:[]})});
+        await w.refreshMessages();
+        assert.equal(w.document.getElementById('peerStatus').textContent, 'online');
     } finally { dom.window.close(); }
 });

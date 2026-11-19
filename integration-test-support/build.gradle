@@ -23,6 +23,7 @@ dependencyManagement {
 }
 
 dependencies {
+    implementation 'org.springframework.security:spring-security-oauth2-jose'
     api 'org.springframework:spring-test'
     api 'org.springframework.boot:spring-boot-testcontainers'
     api 'org.apache.kafka:kafka-clients'

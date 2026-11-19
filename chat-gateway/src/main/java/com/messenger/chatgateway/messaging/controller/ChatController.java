@@ -6,7 +6,7 @@ import com.messenger.chatgateway.messaging.service.ChatService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.messaging.handler.annotation.Header;
+import java.security.Principal;
 import org.springframework.messaging.handler.annotation.MessageExceptionHandler;
 import org.springframework.messaging.handler.annotation.MessageMapping;
 import org.springframework.messaging.handler.annotation.support.MethodArgumentNotValidException;
@@ -23,9 +23,9 @@ public class ChatController {
     @MessageMapping("/chat")
     public void handleMessage(
             @Valid MessageDto messageDto,
-            @Header("user-id") String userId
+            Principal principal
     ) {
-        chatService.processMessage(messageDto, userId);
+        chatService.processMessage(messageDto, principal.getName());
     }
 
     @MessageExceptionHandler(MethodArgumentNotValidException.class)

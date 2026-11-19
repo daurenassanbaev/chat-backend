@@ -13,14 +13,17 @@ public final class StompTestClient implements AutoCloseable, WebSocket.Listener 
     private final HttpClient http = HttpClient.newHttpClient();
     private final WebSocket socket;
 
-    public StompTestClient(int port, String userId) throws Exception {
+    public StompTestClient(int port, String token) throws Exception {
         socket = http.newWebSocketBuilder().buildAsync(
-                URI.create("ws://localhost:" + port + "/ws/websocket?userId=" + userId), this)
+                URI.create("ws://localhost:" + port + "/ws/websocket"), this)
                 .get(10, TimeUnit.SECONDS);
-        frame("CONNECT\naccept-version:1.2\nhost:localhost\nheart-beat:0,0\n\n");
+        String authHeader = token == null ? "" : "Authorization:Bearer " + token + "\n";
+        frame("CONNECT\naccept-version:1.2\nhost:localhost\n" + authHeader + "heart-beat:0,0\n\n");
         String connected = frames.poll(10, TimeUnit.SECONDS);
         if (connected == null || !connected.startsWith("CONNECTED")) {
-            throw new AssertionError("No STOMP CONNECTED: " + connected);
+            close();
+            if (connected != null && connected.startsWith("ERROR")) throw new IllegalStateException("CONNECT rejected");
+            throw new AssertionError("Missing STOMP response");
         }
     }
 
@@ -41,7 +44,10 @@ public final class StompTestClient implements AutoCloseable, WebSocket.Listener 
         frame("SUBSCRIBE\nid:" + destination + "\ndestination:" + destination + "\n\n");
     }
     public void send(String destination, String json) {
-        frame("SEND\ndestination:" + destination + "\ncontent-type:application/json\n\n" + json);
+        send(destination, json, "");
+    }
+    public void send(String destination, String json, String extraHeaders) {
+        frame("SEND\ndestination:" + destination + "\n" + extraHeaders + "content-type:application/json\n\n" + json);
     }
     private void frame(String value) { socket.sendText(value + '\0', true).join(); }
     public String receive(Duration timeout) throws Exception {

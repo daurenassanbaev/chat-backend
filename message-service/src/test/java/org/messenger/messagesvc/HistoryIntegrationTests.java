@@ -8,9 +8,14 @@ import org.messenger.messagesvc.message.repository.MessageRepository;
 import org.messenger.messagesvc.message.service.MessageService;
 import org.messenger.testsupport.PostgresKafkaRedisIntegrationTest;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.web.client.RestClient;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.test.web.servlet.MockMvc;
+import org.messenger.messagesvc.chat.repository.UserRepository;
+
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 import java.time.Instant;
 import java.util.List;
@@ -19,13 +24,69 @@ import java.util.concurrent.*;
 
 import static org.assertj.core.api.Assertions.*;
 
+@AutoConfigureMockMvc
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = "outbox.initial-delay-ms=3600000")
 class HistoryIntegrationTests extends PostgresKafkaRedisIntegrationTest {
     @Autowired ChatService chats;
     @Autowired MessageService messages;
     @Autowired ChatMemberRepository members;
-    @Value("${local.server.port}") int port;
+    @Autowired MockMvc mvc;
+    @Autowired UserRepository users;
+
+    @Test
+    void chatsRequireTokenAndProvisionItsSubject() throws Exception {
+        var id = UUID.randomUUID();
+        mvc.perform(get("/chats").header("user-id", id)).andExpect(status().isUnauthorized());
+        assertThat(users.existsById(id)).isFalse();
+        mvc.perform(get("/chats").with(jwt().jwt(token -> token.subject(id.toString()))))
+                .andExpect(status().isOk()).andExpect(content().json("[]"));
+        assertThat(users.existsById(id)).isTrue();
+    }
+
+    @Test
+    void searchUsesVerifiedUsernamesAndOpensTheSelectedUsersChat() throws Exception {
+        UUID caller = UUID.randomUUID();
+        UUID peer = UUID.randomUUID();
+        UUID mock = UUID.randomUUID();
+        String prefix = "find_" + UUID.randomUUID().toString().substring(0, 8);
+        var principal = jwt().jwt(t -> t.subject(caller.toString()).claim("preferred_username", prefix + "a"));
+        chats.createOrGetDirectChat(peer, mock); // Existing placeholder rows.
+        mvc.perform(get("/users/search").param("q", prefix)).andExpect(status().isUnauthorized());
+        mvc.perform(get("/chats").with(jwt().jwt(t -> t.subject(peer.toString())
+                .claim("preferred_username", prefix + "b")))).andExpect(status().isOk());
+        mvc.perform(get("/users/search").param("q", prefix.toUpperCase(java.util.Locale.ROOT)).with(principal))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].id").value(peer.toString()))
+                .andExpect(jsonPath("$[0].username").value(prefix + "b"));
+        for (String query : List.of(" ", "%", mock.toString())) {
+            mvc.perform(get("/users/search").param("q", query).with(principal))
+                    .andExpect(status().isOk()).andExpect(content().json("[]"));
+        }
+        mvc.perform(post("/chats/direct").with(principal).contentType("application/json")
+                        .content("{\"recipientId\":\"" + peer + "\"}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.peerId").value(peer.toString()));
+        mvc.perform(get("/chats").with(principal)).andExpect(jsonPath("$[0].peerUsername").value(prefix + "b"));
+    }
+
+    @Test
+    void anotherMembersHeaderCannotGrantHistoryAccess() throws Exception {
+        var owner = UUID.randomUUID();
+        var chat = chats.createOrGetDirectChat(owner, UUID.randomUUID());
+        mvc.perform(get("/chats/{id}/messages", chat.chatId()).header("user-id", owner)
+                        .with(jwt().jwt(token -> token.subject(UUID.randomUUID().toString()))))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void healthAndBrowserPreflightArePublic() throws Exception {
+        mvc.perform(get("/actuator/health")).andExpect(status().isOk());
+        mvc.perform(options("/chats").header("Origin", "http://localhost:8080")
+                        .header("Access-Control-Request-Method", "GET")
+                        .header("Access-Control-Request-Headers", "Authorization"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Access-Control-Allow-Origin", "http://localhost:8080"));
+    }
 
     @Test
     void concurrentDirectChatCreationHasOneChatAndTwoMembers() throws Exception {
@@ -91,15 +152,13 @@ class HistoryIntegrationTests extends PostgresKafkaRedisIntegrationTest {
     }
 
     @Test
-    void invalidPaginationReturnsHttp400() {
+    void invalidPaginationReturnsHttp400() throws Exception {
         var a = UUID.randomUUID();
         var chat = chats.createOrGetDirectChat(a, UUID.randomUUID());
         for (String params : List.of("page=-1&size=30", "page=0&size=0", "page=0&size=101")) {
-            var status = RestClient.create().get()
-                    .uri("http://localhost:" + port + "/chats/" + chat.chatId() + "/messages?" + params)
-                    .header("user-id", a.toString())
-                    .exchange((request, response) -> response.getStatusCode().value());
-            assertThat(status).isEqualTo(400);
+            mvc.perform(get("/chats/" + chat.chatId() + "/messages?" + params)
+                            .with(jwt().jwt(token -> token.subject(a.toString()))))
+                    .andExpect(status().isBadRequest());
         }
     }
 }

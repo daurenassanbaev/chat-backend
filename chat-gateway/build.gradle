@@ -26,6 +26,10 @@ repositories {
 }
 
 dependencies {
+    runtimeOnly 'org.webjars.npm:keycloak-js:26.2.3'
+    runtimeOnly('org.webjars.npm:sockjs-client:1.6.1') { transitive = false }
+    runtimeOnly('org.webjars.npm:stomp__stompjs:7.0.0') { transitive = false }
+    implementation 'org.springframework.boot:spring-boot-starter-oauth2-resource-server'
     implementation 'org.springframework.boot:spring-boot-starter-validation'
     implementation 'org.springframework.boot:spring-boot-starter-data-redis'
     implementation project(':chat-shared-lib')

@@ -1,4 +1,14 @@
 services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.6.4
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_HOSTNAME: http://localhost:8083
+    ports:
+      - "127.0.0.1:8083:8080"
+    volumes:
+      - keycloak_data:/opt/keycloak/data
+      - ./keycloak/realm-chat.json:/opt/keycloak/data/import/chat-realm.json:ro
 
   kafka:
     image: confluentinc/cp-kafka:7.6.1
@@ -64,6 +74,8 @@ services:
       start_period: 10s
 
   message-service:
+    environment:
+      CHAT_JWKS_URI: http://keycloak:8080/realms/chat/protocol/openid-connect/certs
     build:
       context: ..
       dockerfile: message-service/Dockerfile
@@ -106,6 +118,8 @@ services:
       start_period: 30s
 
   chat-gateway:
+    environment:
+      CHAT_JWKS_URI: http://keycloak:8080/realms/chat/protocol/openid-connect/certs
     build:
       context: ..
       dockerfile: chat-gateway/Dockerfile
@@ -126,4 +140,5 @@ services:
       start_period: 30s
 
 volumes:
+  keycloak_data:
   postgres_data:

@@ -4,9 +4,15 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Messenger</title>
+    <script>
+        // The IDE preview cannot serve the gateway's WebJars or handle the OAuth callback.
+        if (location.port === '63342' && ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname)) {
+            location.replace('http://localhost:8080/messenger.html');
+        }
+    </script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-    <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1.6.1/dist/sockjs.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@stomp/stompjs@7.0.0/bundles/stomp.umd.min.js"></script>
+    <script src="/webjars/sockjs-client/1.6.1/dist/sockjs.min.js"></script>
+    <script src="/webjars/stomp__stompjs/7.0.0/bundles/stomp.umd.min.js"></script>
     <style>
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -33,21 +39,6 @@
         }
         #login-screen h1 { font-size: 22px; font-weight: 600; color: #fff; }
         #login-screen p  { font-size: 13px; color: #6c7883; text-align: center; margin-top: -12px; }
-
-        .login-input {
-            width: 100%;
-            background: #17212b;
-            border: 1px solid #242f3d;
-            border-radius: 10px;
-            padding: 12px 16px;
-            color: #fff;
-            font-family: 'Inter', sans-serif;
-            font-size: 15px;
-            outline: none;
-            transition: border-color 0.2s;
-        }
-        .login-input:focus { border-color: #2b5278; }
-        .login-input::placeholder { color: #3a4a5a; }
 
         .btn-login {
             width: 100%;
@@ -100,6 +91,12 @@
             background: rgba(82,136,193,0.12);
             padding: 3px 8px;
             border-radius: 10px;
+        }
+        .btn-logout {
+            border: 0;
+            background: transparent;
+            color: #9bb8d5;
+            cursor: pointer;
         }
         .sidebar-search { padding: 8px 12px; flex-shrink: 0; }
         .sidebar-search input {
@@ -410,6 +407,13 @@
         }
         .modal input:focus { border-color: #2b5278; }
         .modal input::placeholder { color: #4a5a6a; }
+        .user-results { display: grid; gap: 4px; max-height: 220px; overflow-y: auto; }
+        .user-results button {
+            cursor: pointer; text-align: left; color: #fff; background: #242f3d;
+            border: 0; border-radius: 6px; padding: 9px 12px; overflow-wrap: anywhere;
+        }
+        #userSearchStatus { color: #abbcca; font-size: 13px; }
+        #userSearchStatus:empty, .user-results:empty { display: none; }
         .modal-btns { display: flex; gap: 8px; justify-content: flex-end; }
         .btn-cancel {
             background: transparent;
@@ -423,19 +427,6 @@
             transition: background 0.15s;
         }
         .btn-cancel:hover { background: rgba(255,255,255,0.05); }
-        .btn-start {
-            background: #2b5278;
-            border: none;
-            border-radius: 8px;
-            padding: 8px 16px;
-            color: #fff;
-            font-family: 'Inter', sans-serif;
-            font-size: 13px;
-            font-weight: 500;
-            cursor: pointer;
-            transition: background 0.15s;
-        }
-        .btn-start:hover { background: #3a6a9a; }
     </style>
 </head>
 <body>
@@ -443,10 +434,9 @@
 <!-- Login -->
 <div id="login-screen">
     <h1>💬 Messenger</h1>
-    <p>Введите ваш User ID чтобы войти</p>
-    <input class="login-input" id="loginUserId" placeholder="UUID пользователя" type="text"
-           onkeydown="if(event.key==='Enter') login()">
-    <button class="btn-login" onclick="login()">Войти</button>
+    <p id="loginStatus" role="status"></p>
+    <button class="btn-login" id="loginButton" disabled onclick="login()">Войти через Keycloak</button>
+    <button class="btn-cancel" id="registerButton" disabled onclick="register()">Зарегистрироваться</button>
 </div>
 
 <!-- App -->
@@ -454,7 +444,8 @@
     <div class="sidebar">
         <div class="sidebar-header">
             <span class="sidebar-title">Chats</span>
-            <span class="me-badge" id="meBadge">me: —</span>
+            <span class="me-badge" id="meBadge"></span>
+            <button class="btn-logout" onclick="logout()">Выйти</button>
         </div>
         <div class="sidebar-search">
             <input type="text" placeholder="Search..." oninput="filterChats(this.value)">
@@ -516,13 +507,16 @@
 
 <!-- New chat modal -->
 <div class="modal-overlay" id="newChatModal">
-    <div class="modal">
-        <h3>New Chat</h3>
-        <input type="text" id="newChatUserId" placeholder="User ID"
-               onkeydown="if(event.key==='Enter') startNewChat()">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="newChatTitle"
+         onkeydown="if(event.key==='Escape') closeNewChat()">
+        <h3 id="newChatTitle">Новый чат</h3>
+        <input type="search" id="newChatUserId" aria-label="Username или UUID собеседника"
+               placeholder="Username или UUID" autocomplete="off" oninput="scheduleUserSearch()"
+               onkeydown="if(event.key==='Enter') document.querySelector('#userResults button:only-child')?.click()">
+        <div id="userResults" class="user-results"></div>
+        <p id="userSearchStatus" role="status"></p>
         <div class="modal-btns">
-            <button class="btn-cancel" onclick="closeNewChat()">Cancel</button>
-            <button class="btn-start" onclick="startNewChat()">Start</button>
+            <button class="btn-cancel" onclick="closeNewChat()">Отмена</button>
         </div>
     </div>
 </div>
@@ -538,6 +532,8 @@
     let connected            = false;
     let heartbeatInterval    = null;
     let presenceSubscription = null;
+    let peerOnline = null;
+    let nameRefreshTimer;
     let allChats             = [];
     let pollInterval         = null;      // FIX: auto-refresh polling
     let lastKnownMessageId   = null;      // FIX: track last seen message to detect new ones
@@ -607,20 +603,88 @@
 
     // ── Login ─────────────────────────────────────────────────────
 
-    function login() {
-        const userId = document.getElementById('loginUserId').value.trim();
-        // if (!isUuid(userId)) {
-        //     alert('Укажите корректный UUID пользователя');
-        //     return;
-        // }
-        currentUser = userId.toLowerCase();
+    let auth;
+    let refreshTimer;
+    let leaving = false;
+    const redirectUri = location.origin + '/messenger.html';
 
+    async function initializeAuth(adapter) {
+        auth = adapter;
+        const authenticated = await auth.init({
+            onLoad: 'check-sso', flow: 'standard', pkceMethod: 'S256', redirectUri,
+            checkLoginIframe: false,
+        });
+        document.getElementById('loginButton').disabled = false;
+        document.getElementById('registerButton').disabled = false;
+        if (!authenticated) return;
+
+        currentUser = auth.subject;
+        const badge = document.getElementById('meBadge');
+        badge.textContent = auth.tokenParsed.preferred_username || currentUser;
+        badge.title = currentUser;
         document.getElementById('login-screen').style.display = 'none';
         document.getElementById('app').style.display = 'flex';
-        document.getElementById('meBadge').textContent = 'me: ' + userId;
 
+        auth.onAuthRefreshSuccess = () => {
+            scheduleRefresh();
+            if (stompClient?.connected) stompClient.forceDisconnect();
+        };
+        scheduleRefresh();
         connectStomp();
         loadChats();
+    }
+
+    function scheduleRefresh() {
+        clearTimeout(refreshTimer);
+        const expires = (auth.tokenParsed.exp + auth.timeSkew) * 1000;
+        refreshTimer = setTimeout(() => accessToken().catch(() => {}), Math.max(0, expires - Date.now() - 30000));
+    }
+
+    function stopSession() {
+        leaving = true;
+        clearTimeout(refreshTimer);
+        clearTimeout(nameRefreshTimer);
+        clearInterval(heartbeatInterval);
+        clearInterval(pollInterval);
+        stompClient?.deactivate({force: true});
+    }
+
+    function login(force = false) {
+        if (leaving) return;
+        stopSession();
+        return auth.login(force ? {prompt: 'login', redirectUri} : {redirectUri});
+    }
+
+    function register() {
+        return auth.register({redirectUri});
+    }
+
+    function logout() {
+        stopSession();
+        return auth.logout({redirectUri});
+    }
+
+    async function accessToken() {
+        if (leaving) throw new Error('Сеанс завершён');
+        try {
+            await auth.updateToken(60);
+            return auth.token;
+        } catch {
+            await login(true);
+            throw new Error('Требуется вход');
+        }
+    }
+
+    async function apiFetch(url, options = {}) {
+        const token = await accessToken();
+        const response = await fetch(url, {...options, headers: {
+            ...options.headers, Authorization: 'Bearer ' + token,
+        }});
+        if (response.status === 401) {
+            await login(true);
+            throw new Error('Требуется вход');
+        }
+        return response;
     }
 
     function isUuid(value) {
@@ -637,11 +701,17 @@
 
     function connectStomp() {
         stompClient = new StompJs.Client({
-            webSocketFactory: () => new SockJS(`${GW_SVC}/ws?userId=${currentUser}`),
-            connectHeaders: { 'user-id': currentUser },
+            webSocketFactory: () => new SockJS(`${GW_SVC}/ws`),
+            beforeConnect: async () => {
+                stompClient.connectHeaders = {Authorization: 'Bearer ' + await accessToken()};
+            },
             reconnectDelay: 5000,
 
             onConnect: () => {
+                if (stompClient.connectHeaders.Authorization !== 'Bearer ' + auth.token) {
+                    stompClient.forceDisconnect();
+                    return;
+                }
                 connected = true;
                 clearInterval(heartbeatInterval);
 
@@ -660,7 +730,9 @@
                         if (!payload.chatId || !payload.senderId || !payload.messageId) return;
                         stompClient.publish({destination: '/app/messages/ack',
                             body: JSON.stringify({messageId: payload.messageId})});
+                        const newChat = !allChats.some(chat => chat.chatId === payload.chatId);
                         upsertChatPreview(payload.chatId, payload.senderId, payload.content, payload.createdAt);
+                        if (newChat) loadChats();
                         if (payload.chatId === activeChatId) {
                             appendMessage(payload.content, 'received', payload.createdAt, payload.messageId);
                             lastKnownMessageId = payload.messageId;
@@ -679,12 +751,14 @@
                 connected = false;
                 clearInterval(heartbeatInterval);
                 heartbeatInterval = null;
-                if (presenceSubscription) { presenceSubscription.unsubscribe(); presenceSubscription = null; }
+                presenceSubscription = null;
             },
 
-            onStompError:    (f) => console.error('STOMP error', f),
+            onStompError:    () => console.error('STOMP connection rejected'),
             onWebSocketError:(e) => console.error('WS error', e),
             onWebSocketClose: () => {
+                presenceSubscription = null;
+                showPresence(null);
                 connected = false;
                 clearInterval(heartbeatInterval);
                 heartbeatInterval = null;
@@ -698,24 +772,62 @@
 
     async function loadChats() {
         try {
-            const res  = await fetch(`${MSG_SVC}/chats`, { headers: { 'user-id': currentUser } });
-            allChats   = await res.json();
+            const res  = await apiFetch(`${MSG_SVC}/chats`);
+            if (!res.ok) throw new Error(`Failed to load chats: ${res.status}`);
+            allChats = await res.json();
+            if (activeChatId) renderPeerName();
             renderChatList(allChats);
         } catch (e) { console.error('Failed to load chats', e); }
     }
 
+    function contactLabel(username, peerId) {
+        return username || (peerId ? 'Собеседник' : 'Group chat');
+    }
+
+    function renderPeerName() {
+        const peer = allChats.find(chat => chat.chatId === activeChatId);
+        const label = contactLabel(peer?.peerUsername, activePeerId);
+        document.getElementById('peerName').textContent = label;
+        document.getElementById('peerAvatar').textContent = label.charAt(0).toUpperCase();
+    }
+
+    // Existing chats acquire a verified username when the peer first signs in.
+    function scheduleNameRefresh() {
+        if (leaving || nameRefreshTimer || !allChats.some(c => c.peerId && !c.peerUsername)) return;
+        nameRefreshTimer = setTimeout(refreshMissingNames, 5000);
+    }
+
+    async function refreshMissingNames() {
+        try {
+            const response = await apiFetch(MSG_SVC + '/chats');
+            if (!response.ok) return;
+            const names = new Map((await response.json()).map(c => [c.peerId, c.peerUsername]));
+            for (const chat of allChats) {
+                if (names.get(chat.peerId)) chat.peerUsername = names.get(chat.peerId);
+            }
+            filterChats(document.querySelector('.sidebar-search input').value);
+            if (activeChatId) renderPeerName();
+        } catch (error) {
+            console.warn('Could not refresh contact names', error);
+        } finally {
+            nameRefreshTimer = null;
+            scheduleNameRefresh();
+        }
+    }
+
     function renderChatList(chats) {
+        scheduleNameRefresh();
         const list  = document.getElementById('chatList');
         const empty = document.getElementById('sidebarEmpty');
         list.querySelectorAll('.chat-item').forEach(el => el.remove());
 
         if (!chats.length) { if (empty) empty.style.display = 'flex'; return; }
         if (empty) empty.style.display = 'none';
-        chats.forEach(c => list.appendChild(buildChatItem(c.chatId, c.peerId, c.lastMessageContent, c.lastMessageAt)));
+        chats.forEach(c => list.appendChild(buildChatItem(c.chatId, c.peerId, c.lastMessageContent, c.lastMessageAt, c.peerUsername)));
     }
 
-    function buildChatItem(chatId, peerId, preview, time) {
-        const label = peerId ?? 'Group chat';
+    function buildChatItem(chatId, peerId, preview, time, peerUsername) {
+        const label = contactLabel(peerUsername, peerId);
         const item = document.createElement('div');
         item.className = 'chat-item' + (chatId === activeChatId ? ' active' : '');
         item.dataset.chatId = chatId;
@@ -731,28 +843,30 @@
             </div>
             <div class="chat-item-time"></div>
         `;
+        if (peerId === activePeerId && peerOnline) item.querySelector('.online-dot').style.display = 'block';
         item.querySelector('.chat-avatar-label').textContent = label.charAt(0).toUpperCase();
-        item.querySelector('.chat-item-name').textContent = peerId ? `User ${peerId}` : label;
+        item.querySelector('.chat-item-name').textContent = label;
         item.querySelector('.chat-item-preview').textContent = preview ?? '';
         item.querySelector('.chat-item-time').textContent = time ? getTime(time) : '';
         return item;
     }
 
-    function upsertChatPreview(chatId, peerId, text, time = null) {
+    function upsertChatPreview(chatId, peerId, text, time = null, peerUsername = null) {
         const existing = allChats.find(chat => chat.chatId === chatId);
         if (existing) {
             existing.peerId ??= peerId;
+            existing.peerUsername ??= peerUsername;
             existing.lastMessageContent = text;
             existing.lastMessageAt = time;
         } else {
-            allChats.unshift({ chatId, peerId, lastMessageContent: text, lastMessageAt: time });
+            allChats.unshift({ chatId, peerId, peerUsername, lastMessageContent: text, lastMessageAt: time });
         }
         renderChatList(allChats);
     }
 
     function filterChats(q) {
         const normalizedQuery = q.toLowerCase();
-        renderChatList(q ? allChats.filter(c => (c.peerId ?? '').toLowerCase().includes(normalizedQuery)) : allChats);
+        renderChatList(q ? allChats.filter(c => (c.peerUsername || c.peerId || '').toLowerCase().includes(normalizedQuery)) : allChats);
     }
 
     // ── Open chat ─────────────────────────────────────────────────
@@ -760,6 +874,8 @@
     async function openChat(chatId, peerId) {
         const generation = ++chatGeneration;
         clearInterval(pollInterval);
+        const previousDot = document.getElementById('dot-' + activeChatId);
+        if (previousDot) previousDot.style.display = 'none';
         activeChatId = chatId;
         activePeerId = peerId;
 
@@ -772,16 +888,16 @@
         const view = document.getElementById('activeChatView');
         view.classList.add('visible');
 
-        const label = peerId ?? 'Group chat';
-        document.getElementById('peerAvatar').textContent = label.charAt(0).toUpperCase();
-        document.getElementById('peerName').textContent   = peerId ? 'User ' + peerId : label;
-        setPeerStatus('loading...');
+        renderPeerName();
+        presenceSubscription?.unsubscribe();
+        presenceSubscription = null;
+        showPresence(null);
+        if (connected && peerId) subscribeToPresence(peerId);
         document.getElementById('messages').innerHTML = '';
         lastKnownMessageId = null;
 
         await loadMessages(chatId);
         if (generation !== chatGeneration) return;
-        if (connected && peerId) subscribeToPresence(peerId);
 
         // FIX: start polling for new messages every 5s
         startPolling(chatId, peerId);
@@ -791,7 +907,7 @@
         const requestId = ++historyRequestId;
         const generation = chatGeneration;
         try {
-            const res  = await fetch(`${MSG_SVC}/chats/${chatId}/messages?page=0&size=30`, { headers: { 'user-id': currentUser } });
+            const res  = await apiFetch(`${MSG_SVC}/chats/${chatId}/messages?page=0&size=30`);
             if (!res.ok) throw new Error(`Failed to load messages: ${res.status}`);
             const data = await res.json();
             if (requestId !== historyRequestId || generation !== chatGeneration || activeChatId !== chatId) return;
@@ -801,12 +917,10 @@
             });
             if (msgs.length > 0) lastKnownMessageId = msgs[msgs.length - 1].id;
             outgoingMessages.forEach(renderOutgoing);
-            setPeerStatus('last seen recently');
         } catch (e) {
             if (requestId !== historyRequestId || generation !== chatGeneration || activeChatId !== chatId) return;
             console.error('Failed to load messages', e);
             outgoingMessages.forEach(renderOutgoing);
-            setPeerStatus('error');
         }
     }
 
@@ -835,7 +949,7 @@
             const requestId = ++historyRequestId;
             if (activeChatId !== chatId) { clearInterval(pollInterval); return; }
             try {
-                const res  = await fetch(`${MSG_SVC}/chats/${chatId}/messages?page=0&size=30`, { headers: { 'user-id': currentUser } });
+                const res  = await apiFetch(`${MSG_SVC}/chats/${chatId}/messages?page=0&size=30`);
                 if (!res.ok) return;
                 const data = await res.json();
                 if (requestId !== historyRequestId || generation !== chatGeneration || activeChatId !== chatId) return;
@@ -866,46 +980,93 @@
 
     // ── Presence ──────────────────────────────────────────────────
 
+    function showPresence(online) {
+        peerOnline = online;
+        const status = online == null ? '—' : (online ? 'online' : 'last seen recently');
+        setPeerStatus(status, online === true);
+        const dot = document.getElementById('dot-' + activeChatId);
+        if (dot) dot.style.display = online ? 'block' : 'none';
+    }
+
     function subscribeToPresence(peerId) {
-        if (presenceSubscription) presenceSubscription.unsubscribe();
-        presenceSubscription = stompClient.subscribe(`/topic/presence.${peerId}`, (frame) => {
-            const { status } = JSON.parse(frame.body);
-            const online = status === 'online';
-            if (activePeerId === peerId) setPeerStatus(online ? 'online' : 'last seen recently', online);
-            const chat = allChats.find(item => item.peerId === peerId);
-            const dot = chat && document.getElementById('dot-' + chat.chatId);
-            if (dot) dot.style.display = online ? 'block' : 'none';
+        presenceSubscription?.unsubscribe();
+        let receivedUpdate = false;
+        const subscription = stompClient.subscribe(`/topic/presence.${peerId}`, frame => {
+            if (presenceSubscription !== subscription || activePeerId !== peerId) return;
+            const snapshot = frame.headers['presence-snapshot'] === 'true';
+            if (snapshot && receivedUpdate) return;
+            if (!snapshot) receivedUpdate = true;
+            const event = JSON.parse(frame.body);
+            if (event.userId === peerId) showPresence(event.status === 'online');
         });
+        presenceSubscription = subscription;
     }
 
     // ── New chat modal ────────────────────────────────────────────
 
+    let searchVersion = 0;
+    let searchTimer;
+
     function openNewChat() {
         document.getElementById('newChatModal').classList.add('open');
-        setTimeout(() => document.getElementById('newChatUserId').focus(), 50);
+        document.getElementById('newChatUserId').focus();
     }
+
     function closeNewChat() {
         document.getElementById('newChatModal').classList.remove('open');
         document.getElementById('newChatUserId').value = '';
+        scheduleUserSearch();
     }
-    async function startNewChat() {
-        const peerId = document.getElementById('newChatUserId').value.trim();
-        if (!isUuid(peerId) || peerId === currentUser) {
-            alert('Укажите UUID другого пользователя');
-            return;
-        }
 
+    function scheduleUserSearch() {
+        const version = ++searchVersion;
+        clearTimeout(searchTimer);
+        const query = document.getElementById('newChatUserId').value.trim();
+        document.getElementById('userResults').replaceChildren();
+        document.getElementById('userSearchStatus').textContent = '';
+        if (query) searchTimer = setTimeout(() => searchUsers(query, version), 200);
+    }
+
+    async function searchUsers(query, version) {
+        const status = document.getElementById('userSearchStatus');
+        const results = document.getElementById('userResults');
         try {
-            const response = await fetch(`${MSG_SVC}/chats/direct`, {
+            const response = await apiFetch(MSG_SVC + '/users/search?q=' + encodeURIComponent(query));
+            if (!response.ok) throw new Error();
+            const users = await response.json();
+            if (version !== searchVersion) return;
+            if (isUuid(query) && query.toLowerCase() !== currentUser &&
+                    !users.some(user => user.id === query.toLowerCase())) {
+                users.push({id: query.toLowerCase(), username: null});
+            }
+            for (const user of users) {
+                const button = document.createElement('button');
+                button.textContent = user.username || 'Открыть чат по UUID';
+                button.onclick = () => startNewChat(user.id, user.username);
+                results.append(button);
+            }
+            status.textContent = users.length ? '' : 'Пользователи не найдены';
+        } catch {
+            if (version === searchVersion) status.textContent = 'Поиск недоступен. Попробуйте ещё раз.';
+        }
+    }
+
+    async function startNewChat(peerId, peerUsername) {
+        const version = ++searchVersion;
+        try {
+            const response = await apiFetch(`${MSG_SVC}/chats/direct`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'user-id': currentUser },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ recipientId: peerId }),
             });
             if (!response.ok) throw new Error(`Failed to create chat: ${response.status}`);
 
             const chat = await response.json();
+            if (version !== searchVersion) return;
             closeNewChat();
-            upsertChatPreview(chat.chatId, chat.peerId, '');
+            const existing = allChats.find(item => item.chatId === chat.chatId);
+            upsertChatPreview(chat.chatId, chat.peerId, existing?.lastMessageContent ?? '',
+                    existing?.lastMessageAt, peerUsername);
             await openChat(chat.chatId, chat.peerId);
         } catch (error) {
             console.error('Failed to create direct chat', error);
@@ -928,7 +1089,6 @@
         try {
             stompClient.publish({
                 destination: '/app/chat',
-                headers: {'user-id': currentUser},
                 body: JSON.stringify({chatId: activeChatId, text, clientMessageId}),
             });
         } catch (error) {
@@ -985,6 +1145,14 @@
         row.appendChild(bubble);
         container.appendChild(row);
         container.scrollTop = container.scrollHeight;
+    }
+</script>
+<script type="module">
+    try {
+        const {default: Keycloak} = await import('/webjars/keycloak-js/26.2.3/lib/keycloak.js');
+        await initializeAuth(new Keycloak({url: 'http://localhost:8083', realm: 'chat', clientId: 'chat-web'}));
+    } catch {
+        document.getElementById('loginStatus').textContent = 'Не удалось подключиться к Keycloak. Обновите страницу.';
     }
 </script>
 </body>

@@ -14,6 +14,7 @@ public class StompDisconnectListener {
     private final PresenceService presenceService;
     @EventListener
     public void onDisconnect(SessionDisconnectEvent event) {
+        if (event.getUser() == null) return; // Handshake closed before an authenticated CONNECT.
         String userId = StompSessionUtils.getUserIdFromEvent(event);
         String sessionId = StompHeaderAccessor.wrap(event.getMessage()).getSessionId();
         presenceService.disconnected(userId, sessionId);
