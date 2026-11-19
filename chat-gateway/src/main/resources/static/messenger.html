@@ -4,6 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Messenger</title>
+    <script>
+        // The IDE preview cannot serve the gateway's WebJars or handle the OAuth callback.
+        if (location.port === '63342' && ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname)) {
+            location.replace('http://localhost:8080/messenger.html');
+        }
+    </script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
     <script src="/webjars/sockjs-client/1.6.1/dist/sockjs.min.js"></script>
     <script src="/webjars/stomp__stompjs/7.0.0/bundles/stomp.umd.min.js"></script>
