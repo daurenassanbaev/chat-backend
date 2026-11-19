@@ -10,7 +10,7 @@ function page() {
     const dom = new JSDOM(html, {url: 'http://localhost:8080', runScripts: 'outside-only'});
     const script = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].at(-1)[1];
     dom.window.eval(script + '\nwindow.runForTest = code => eval(code);');
-    dom.window.runForTest(`currentUser='00000000-0000-4000-8000-000000000001'; activeChatId='chat-A';`);
+    dom.window.runForTest(`auth={token:'test-token',updateToken:async()=>false};currentUser='00000000-0000-4000-8000-000000000001'; activeChatId='chat-A';`);
     return dom;
 }
 
@@ -63,6 +63,7 @@ test('late history response from previous chat cannot change current messages', 
         dom.window.fetch = () => new Promise(resolve => { release = resolve; });
         const pending = dom.window.loadMessages('chat-A');
         dom.window.runForTest(`activeChatId='chat-B'; chatGeneration++`);
+        await new Promise(resolve => setImmediate(resolve));
         release({ok:true,json:async()=>({content:[{id:'old',content:'wrong chat',senderId:'peer'}]})});
         await pending;
         assert.equal(dom.window.document.querySelectorAll('#messages .msg-row').length, 0);
@@ -76,6 +77,7 @@ test('A to B to A rejects the response from the first visit to A', async () => {
         dom.window.fetch = () => new Promise(resolve => { release = resolve; });
         const pending = dom.window.loadMessages('chat-A');
         dom.window.runForTest(`chatGeneration+=2; activeChatId='chat-A'`);
+        await new Promise(resolve => setImmediate(resolve));
         release({ok:true,json:async()=>({content:[{id:'old',content:'stale',senderId:'peer'}]})});
         await pending;
         assert.equal(dom.window.document.querySelectorAll('#messages .msg-row').length, 0);
@@ -97,5 +99,48 @@ test('reopening a chat with stored history clears the queued placeholder state',
         await dom.window.loadMessages('chat-A');
         assert.equal(dom.window.document.querySelectorAll('#messages .msg-row').length, 1);
         assert.equal(dom.window.document.querySelectorAll('.send-state').length, 0);
+    } finally { dom.window.close(); }
+});
+
+test('REST sends a bearer token and a 401 starts one new login', async () => {
+    const dom = page();
+    try {
+        let logins = 0;
+        dom.window.runForTest('auth').login = async options => {
+            assert.equal(options.prompt, 'login');
+            logins++;
+        };
+        dom.window.fetch = async (url, options) => {
+            assert.equal(options.headers.Authorization, 'Bearer test-token');
+            return {status: 401};
+        };
+        await Promise.all([1, 2].map(() => assert.rejects(dom.window.apiFetch('/chats'), /Требуется вход/)));
+        assert.equal(logins, 1);
+    } finally { dom.window.close(); }
+});
+
+test('each STOMP connection takes the current token; refresh reconnects the socket', async () => {
+    const dom = page();
+    try {
+        let client, disconnects = 0;
+        dom.window.StompJs = {Client: class {
+            constructor(options) { Object.assign(this, options); client = this; }
+            activate() {}
+            forceDisconnect() { disconnects++; }
+        }};
+        dom.window.SockJS = class { constructor(url) { this.url = url; } };
+        dom.window.fetch = async () => ({status:200, json:async()=>[]});
+        const adapter = {init:async()=>true, subject:'alice', token:'first', timeSkew:0,
+            tokenParsed:{exp: Date.now() / 1000 + 600}, updateToken:async()=>false};
+        await dom.window.initializeAuth(adapter);
+        assert.equal(client.webSocketFactory().url, 'http://localhost:8080/ws');
+        await client.beforeConnect();
+        assert.equal(client.connectHeaders.Authorization, 'Bearer first');
+        client.connected = true;
+        adapter.token = 'second';
+        adapter.onAuthRefreshSuccess();
+        assert.equal(disconnects, 1);
+        await client.beforeConnect();
+        assert.equal(client.connectHeaders.Authorization, 'Bearer second');
     } finally { dom.window.close(); }
 });

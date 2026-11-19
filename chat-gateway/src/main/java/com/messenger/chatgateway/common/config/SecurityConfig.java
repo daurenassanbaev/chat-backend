@@ -15,7 +15,7 @@ public class SecurityConfig {
                 .csrf(csrf -> csrf.ignoringRequestMatchers("/ws/**"))
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(requests -> requests
-                        .requestMatchers("/messenger.html", "/ws/**", "/actuator/health", "/actuator/health/**").permitAll()
+                        .requestMatchers("/messenger.html", "/webjars/**", "/ws/**", "/actuator/health", "/actuator/health/**").permitAll()
                         .anyRequest().denyAll())
                 .build();
     }

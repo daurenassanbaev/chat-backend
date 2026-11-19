@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Messenger</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-    <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1.6.1/dist/sockjs.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@stomp/stompjs@7.0.0/bundles/stomp.umd.min.js"></script>
+    <script src="/webjars/sockjs-client/1.6.1/dist/sockjs.min.js"></script>
+    <script src="/webjars/stomp__stompjs/7.0.0/bundles/stomp.umd.min.js"></script>
     <style>
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -33,21 +33,6 @@
         }
         #login-screen h1 { font-size: 22px; font-weight: 600; color: #fff; }
         #login-screen p  { font-size: 13px; color: #6c7883; text-align: center; margin-top: -12px; }
-
-        .login-input {
-            width: 100%;
-            background: #17212b;
-            border: 1px solid #242f3d;
-            border-radius: 10px;
-            padding: 12px 16px;
-            color: #fff;
-            font-family: 'Inter', sans-serif;
-            font-size: 15px;
-            outline: none;
-            transition: border-color 0.2s;
-        }
-        .login-input:focus { border-color: #2b5278; }
-        .login-input::placeholder { color: #3a4a5a; }
 
         .btn-login {
             width: 100%;
@@ -100,6 +85,12 @@
             background: rgba(82,136,193,0.12);
             padding: 3px 8px;
             border-radius: 10px;
+        }
+        .btn-logout {
+            border: 0;
+            background: transparent;
+            color: #9bb8d5;
+            cursor: pointer;
         }
         .sidebar-search { padding: 8px 12px; flex-shrink: 0; }
         .sidebar-search input {
@@ -443,10 +434,8 @@
 <!-- Login -->
 <div id="login-screen">
     <h1>💬 Messenger</h1>
-    <p>Введите ваш User ID чтобы войти</p>
-    <input class="login-input" id="loginUserId" placeholder="UUID пользователя" type="text"
-           onkeydown="if(event.key==='Enter') login()">
-    <button class="btn-login" onclick="login()">Войти</button>
+    <p id="loginStatus" role="status"></p>
+    <button class="btn-login" id="loginButton" disabled onclick="login()">Войти через Keycloak</button>
 </div>
 
 <!-- App -->
@@ -454,7 +443,8 @@
     <div class="sidebar">
         <div class="sidebar-header">
             <span class="sidebar-title">Chats</span>
-            <span class="me-badge" id="meBadge">me: —</span>
+            <span class="me-badge" id="meBadge"></span>
+            <button class="btn-logout" onclick="logout()">Выйти</button>
         </div>
         <div class="sidebar-search">
             <input type="text" placeholder="Search..." oninput="filterChats(this.value)">
@@ -607,20 +597,82 @@
 
     // ── Login ─────────────────────────────────────────────────────
 
-    function login() {
-        const userId = document.getElementById('loginUserId').value.trim();
-        // if (!isUuid(userId)) {
-        //     alert('Укажите корректный UUID пользователя');
-        //     return;
-        // }
-        currentUser = userId.toLowerCase();
+    let auth;
+    let refreshTimer;
+    let leaving = false;
+    const redirectUri = location.origin + '/messenger.html';
 
+    async function initializeAuth(adapter) {
+        auth = adapter;
+        const authenticated = await auth.init({
+            onLoad: 'check-sso', flow: 'standard', pkceMethod: 'S256', redirectUri,
+            checkLoginIframe: false,
+        });
+        document.getElementById('loginButton').disabled = false;
+        if (!authenticated) return;
+
+        currentUser = auth.subject;
+        const badge = document.getElementById('meBadge');
+        badge.textContent = auth.tokenParsed.preferred_username || currentUser;
+        badge.title = currentUser;
         document.getElementById('login-screen').style.display = 'none';
         document.getElementById('app').style.display = 'flex';
-        document.getElementById('meBadge').textContent = 'me: ' + userId;
 
+        auth.onAuthRefreshSuccess = () => {
+            scheduleRefresh();
+            if (stompClient?.connected) stompClient.forceDisconnect();
+        };
+        scheduleRefresh();
         connectStomp();
         loadChats();
+    }
+
+    function scheduleRefresh() {
+        clearTimeout(refreshTimer);
+        const expires = (auth.tokenParsed.exp + auth.timeSkew) * 1000;
+        refreshTimer = setTimeout(() => accessToken().catch(() => {}), Math.max(0, expires - Date.now() - 30000));
+    }
+
+    function stopSession() {
+        leaving = true;
+        clearTimeout(refreshTimer);
+        clearInterval(heartbeatInterval);
+        clearInterval(pollInterval);
+        stompClient?.deactivate({force: true});
+    }
+
+    function login(force = false) {
+        if (leaving) return;
+        stopSession();
+        return auth.login(force ? {prompt: 'login', redirectUri} : {redirectUri});
+    }
+
+    function logout() {
+        stopSession();
+        return auth.logout({redirectUri});
+    }
+
+    async function accessToken() {
+        if (leaving) throw new Error('Сеанс завершён');
+        try {
+            await auth.updateToken(60);
+            return auth.token;
+        } catch {
+            await login(true);
+            throw new Error('Требуется вход');
+        }
+    }
+
+    async function apiFetch(url, options = {}) {
+        const token = await accessToken();
+        const response = await fetch(url, {...options, headers: {
+            ...options.headers, Authorization: 'Bearer ' + token,
+        }});
+        if (response.status === 401) {
+            await login(true);
+            throw new Error('Требуется вход');
+        }
+        return response;
     }
 
     function isUuid(value) {
@@ -637,11 +689,17 @@
 
     function connectStomp() {
         stompClient = new StompJs.Client({
-            webSocketFactory: () => new SockJS(`${GW_SVC}/ws?userId=${currentUser}`),
-            connectHeaders: { 'user-id': currentUser },
+            webSocketFactory: () => new SockJS(`${GW_SVC}/ws`),
+            beforeConnect: async () => {
+                stompClient.connectHeaders = {Authorization: 'Bearer ' + await accessToken()};
+            },
             reconnectDelay: 5000,
 
             onConnect: () => {
+                if (stompClient.connectHeaders.Authorization !== 'Bearer ' + auth.token) {
+                    stompClient.forceDisconnect();
+                    return;
+                }
                 connected = true;
                 clearInterval(heartbeatInterval);
 
@@ -679,12 +737,13 @@
                 connected = false;
                 clearInterval(heartbeatInterval);
                 heartbeatInterval = null;
-                if (presenceSubscription) { presenceSubscription.unsubscribe(); presenceSubscription = null; }
+                presenceSubscription = null;
             },
 
-            onStompError:    (f) => console.error('STOMP error', f),
+            onStompError:    () => console.error('STOMP connection rejected'),
             onWebSocketError:(e) => console.error('WS error', e),
             onWebSocketClose: () => {
+                presenceSubscription = null;
                 connected = false;
                 clearInterval(heartbeatInterval);
                 heartbeatInterval = null;
@@ -698,7 +757,7 @@
 
     async function loadChats() {
         try {
-            const res  = await fetch(`${MSG_SVC}/chats`, { headers: { 'user-id': currentUser } });
+            const res  = await apiFetch(`${MSG_SVC}/chats`);
             allChats   = await res.json();
             renderChatList(allChats);
         } catch (e) { console.error('Failed to load chats', e); }
@@ -791,7 +850,7 @@
         const requestId = ++historyRequestId;
         const generation = chatGeneration;
         try {
-            const res  = await fetch(`${MSG_SVC}/chats/${chatId}/messages?page=0&size=30`, { headers: { 'user-id': currentUser } });
+            const res  = await apiFetch(`${MSG_SVC}/chats/${chatId}/messages?page=0&size=30`);
             if (!res.ok) throw new Error(`Failed to load messages: ${res.status}`);
             const data = await res.json();
             if (requestId !== historyRequestId || generation !== chatGeneration || activeChatId !== chatId) return;
@@ -835,7 +894,7 @@
             const requestId = ++historyRequestId;
             if (activeChatId !== chatId) { clearInterval(pollInterval); return; }
             try {
-                const res  = await fetch(`${MSG_SVC}/chats/${chatId}/messages?page=0&size=30`, { headers: { 'user-id': currentUser } });
+                const res  = await apiFetch(`${MSG_SVC}/chats/${chatId}/messages?page=0&size=30`);
                 if (!res.ok) return;
                 const data = await res.json();
                 if (requestId !== historyRequestId || generation !== chatGeneration || activeChatId !== chatId) return;
@@ -896,9 +955,9 @@
         }
 
         try {
-            const response = await fetch(`${MSG_SVC}/chats/direct`, {
+            const response = await apiFetch(`${MSG_SVC}/chats/direct`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'user-id': currentUser },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ recipientId: peerId }),
             });
             if (!response.ok) throw new Error(`Failed to create chat: ${response.status}`);
@@ -928,7 +987,6 @@
         try {
             stompClient.publish({
                 destination: '/app/chat',
-                headers: {'user-id': currentUser},
                 body: JSON.stringify({chatId: activeChatId, text, clientMessageId}),
             });
         } catch (error) {
@@ -985,6 +1043,14 @@
         row.appendChild(bubble);
         container.appendChild(row);
         container.scrollTop = container.scrollHeight;
+    }
+</script>
+<script type="module">
+    try {
+        const {default: Keycloak} = await import('/webjars/keycloak-js/26.2.3/lib/keycloak.js');
+        await initializeAuth(new Keycloak({url: 'http://localhost:8083', realm: 'chat', clientId: 'chat-web'}));
+    } catch {
+        document.getElementById('loginStatus').textContent = 'Не удалось подключиться к Keycloak. Обновите страницу.';
     }
 </script>
 </body>
