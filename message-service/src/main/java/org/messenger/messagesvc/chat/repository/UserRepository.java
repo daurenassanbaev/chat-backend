@@ -16,5 +16,5 @@ public interface UserRepository extends JpaRepository<User, UUID> {
             VALUES (:id, :username)
             ON CONFLICT (id) DO NOTHING
             """, nativeQuery = true)
-    void insertMockUserIfAbsent(@Param("id") UUID id, @Param("username") String username);
+    void insertUserIfAbsent(@Param("id") UUID id, @Param("username") String username);
 }

@@ -105,7 +105,7 @@ public class ChatService {
     }
 
     private void createChat(UUID chatId, UUID creatorId, List<UUID> recipientIds, Instant createdAt) {
-        userService.ensureMockUsersExist(withCreator(creatorId, recipientIds));
+        userService.ensureUsersExist(withCreator(creatorId, recipientIds));
 
         Instant timestamp = createdAt == null ? Instant.now() : createdAt;
         String type = recipientIds.size() == 1 ? ChatType.DIRECT.name() : ChatType.GROUP.name();

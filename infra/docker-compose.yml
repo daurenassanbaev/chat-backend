@@ -73,6 +73,8 @@ services:
       start_period: 10s
 
   message-service:
+    environment:
+      CHAT_JWKS_URI: http://keycloak:8080/realms/chat/protocol/openid-connect/certs
     build:
       context: ..
       dockerfile: message-service/Dockerfile

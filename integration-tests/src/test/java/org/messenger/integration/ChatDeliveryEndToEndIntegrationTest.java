@@ -21,6 +21,7 @@ import org.messenger.messagesvc.status.entity.MessageStatus;
 import org.messenger.testsupport.KafkaRecordReader;
 import org.messenger.testsupport.PostgresKafkaRedisIntegrationTest;
 import org.messenger.testsupport.StompTestClient;
+import org.messenger.testsupport.TestTokenIssuer;
 import org.springframework.boot.WebApplicationType;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.context.ConfigurableApplicationContext;
@@ -46,6 +47,8 @@ class ChatDeliveryEndToEndIntegrationTest extends PostgresKafkaRedisIntegrationT
     private static ConfigurableApplicationContext chatGateway;
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper().findAndRegisterModules();
 
+    private static final TestTokenIssuer tokens = new TestTokenIssuer();
+
     @BeforeAll
     static void startServices() {
         Map<String, Object> infrastructure = Map.of(
@@ -68,6 +71,7 @@ class ChatDeliveryEndToEndIntegrationTest extends PostgresKafkaRedisIntegrationT
         close(chatGateway);
         close(deliveryService);
         close(messageService);
+        tokens.close();
     }
 
     @Test
@@ -147,7 +151,7 @@ class ChatDeliveryEndToEndIntegrationTest extends PostgresKafkaRedisIntegrationT
     private static JsonNode createDirectChat(UUID senderId, UUID recipientId) throws Exception {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.set("user-id", senderId.toString());
+        headers.setBearerAuth(tokens.token(senderId.toString()));
         HttpEntity<String> request = new HttpEntity<>(
                 OBJECT_MAPPER.writeValueAsString(Map.of("recipientId", recipientId)), headers);
         var response = new RestTemplate().exchange(
@@ -171,6 +175,11 @@ class ChatDeliveryEndToEndIntegrationTest extends PostgresKafkaRedisIntegrationT
                 .map(entry -> "--" + entry.getKey() + "=" + entry.getValue())
                 .collect(Collectors.toCollection(ArrayList::new));
         arguments.add("--spring.config.location=classpath:/" + configFile);
+        if (application == MessageServiceApplication.class) {
+            arguments.add("--spring.security.oauth2.resourceserver.jwt.audiences=chat-api");
+            arguments.add("--spring.security.oauth2.resourceserver.jwt.issuer-uri=" + tokens.issuer());
+            arguments.add("--spring.security.oauth2.resourceserver.jwt.jwk-set-uri=" + tokens.issuer() + "/certs");
+        }
         if (web) {
             arguments.add("--server.port=0");
         } else {

@@ -4,25 +4,28 @@ import lombok.RequiredArgsConstructor;
 import org.messenger.messagesvc.chat.repository.UserRepository;
 import org.springframework.stereotype.Service;
 
+import org.springframework.transaction.annotation.Transactional;
+
 import java.util.Collection;
 import java.util.Objects;
 import java.util.UUID;
 
-/**
- * Temporary local user provisioning. This is intentionally the only place
- * that creates users until the Keycloak/user service integration replaces it.
- */
 @Service
 @RequiredArgsConstructor
 public class UserService {
 
     private final UserRepository userRepository;
 
-    public void ensureMockUsersExist(Collection<UUID> userIds) {
+    @Transactional
+    public void ensureUserExists(UUID userId) {
+        userRepository.insertUserIfAbsent(userId, userId.toString());
+    }
+
+    public void ensureUsersExist(Collection<UUID> userIds) {
         userIds.stream()
                 .filter(Objects::nonNull)
                 .distinct()
                 .sorted()
-                .forEach(userId -> userRepository.insertMockUserIfAbsent(userId, "mock-" + userId));
+                .forEach(this::ensureUserExists);
     }
 }

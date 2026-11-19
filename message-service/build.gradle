@@ -20,6 +20,9 @@ repositories {
 }
 
 dependencies {
+    implementation 'org.springframework.boot:spring-boot-starter-oauth2-resource-server'
+    testImplementation 'org.springframework.security:spring-security-test'
+    testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
     implementation 'org.springframework.boot:spring-boot-starter-validation'
     implementation project(':chat-shared-lib')
     implementation 'org.springframework.boot:spring-boot-starter-kafka'
