@@ -84,11 +84,12 @@ public class ChatService {
         List<UUID> chatIds = memberships.stream()
                 .map(member -> member.getId().getChatId())
                 .toList();
-        Map<UUID, UUID> peerIds = findPeerIds(userId, chatIds);
+        var peers = chatMemberRepository.findPeers(userId, chatIds).stream().collect(Collectors.toMap(
+                ChatMemberRepository.Peer::getChatId, peer -> peer, (first, ignored) -> first));
         Map<UUID, Message> latestMessages = latestMessages(chatIds);
 
         return chatIds.stream()
-                .map(chatId -> toChatPreview(chatId, peerIds.get(chatId), latestMessages.get(chatId)))
+                .map(chatId -> toChatPreview(chatId, peers.get(chatId), latestMessages.get(chatId)))
                 .sorted(Comparator.comparing(ChatPreviewDto::lastMessageAt,
                         Comparator.nullsLast(Comparator.reverseOrder())))
                 .toList();
@@ -126,16 +127,6 @@ public class ChatService {
         }
     }
 
-    private Map<UUID, UUID> findPeerIds(UUID userId, List<UUID> chatIds) {
-        return chatMemberRepository.findAllByIdChatIdIn(chatIds).stream()
-                .filter(member -> !member.getId().getUserId().equals(userId))
-                .collect(Collectors.toMap(
-                        member -> member.getId().getChatId(),
-                        member -> member.getId().getUserId(),
-                        (first, ignored) -> first
-                ));
-    }
-
     private Map<UUID, Message> latestMessages(List<UUID> chatIds) {
         Map<UUID, Message> result = new LinkedHashMap<>();
         for (Message message : messageRepository.findLatestForChats(chatIds)) {
@@ -144,10 +135,11 @@ public class ChatService {
         return result;
     }
 
-    private ChatPreviewDto toChatPreview(UUID chatId, UUID peerId, Message lastMessage) {
+    private ChatPreviewDto toChatPreview(UUID chatId, ChatMemberRepository.Peer peer, Message lastMessage) {
         return new ChatPreviewDto(
                 chatId,
-                peerId,
+                peer == null ? null : peer.getUserId(),
+                peer == null ? null : peer.getUsername(),
                 lastMessage == null ? null : lastMessage.getId(),
                 lastMessage == null ? null : lastMessage.getContent(),
                 lastMessage == null ? null : lastMessage.getCreatedAt()

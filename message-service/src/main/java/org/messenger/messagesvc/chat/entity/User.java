@@ -20,6 +20,9 @@ public class User {
 
     private String username;
 
+    @Column(name = "username_verified")
+    private boolean usernameVerified;
+
     @Column(name = "first_name")
     private String firstName;
 

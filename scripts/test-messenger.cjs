@@ -144,3 +144,31 @@ test('each STOMP connection takes the current token; refresh reconnects the sock
         assert.equal(client.connectHeaders.Authorization, 'Bearer second');
     } finally { dom.window.close(); }
 });
+
+test('username results ignore stale responses and open the selected peer by id', async () => {
+    const dom = page();
+    try {
+        const w = dom.window;
+        let finishOld;
+        let recipient;
+        w.fetch = async (url, options) => {
+            if (url.endsWith('q=old')) return new Promise(resolve => { finishOld = resolve; });
+            if (url.endsWith('q=bo')) return {ok:true, json:async()=>[{id:'peer-id', username:'bob'}]};
+            if (url.endsWith('/direct')) {
+                recipient = JSON.parse(options.body).recipientId;
+                return {ok:true, json:async()=>({chatId:'chat-B', peerId:recipient})};
+            }
+            return {ok:true, json:async()=>({content:[]})};
+        };
+        const old = w.searchUsers('old', w.runForTest('++searchVersion'));
+        await w.searchUsers('bo', w.runForTest('++searchVersion'));
+        finishOld({ok:true, json:async()=>[{id:'old-id', username:'old'}]});
+        await old;
+        const results = w.document.querySelectorAll('#userResults button');
+        assert.equal(results.length, 1);
+        assert.equal(results[0].textContent, 'bob');
+        await results[0].onclick();
+        assert.equal(recipient, 'peer-id');
+        assert.equal(w.document.getElementById('peerName').textContent, 'bob');
+    } finally { dom.window.close(); }
+});

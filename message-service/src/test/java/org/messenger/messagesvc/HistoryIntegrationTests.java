@@ -45,6 +45,31 @@ class HistoryIntegrationTests extends PostgresKafkaRedisIntegrationTest {
     }
 
     @Test
+    void searchUsesVerifiedUsernamesAndOpensTheSelectedUsersChat() throws Exception {
+        UUID caller = UUID.randomUUID();
+        UUID peer = UUID.randomUUID();
+        UUID mock = UUID.randomUUID();
+        String prefix = "find_" + UUID.randomUUID().toString().substring(0, 8);
+        var principal = jwt().jwt(t -> t.subject(caller.toString()).claim("preferred_username", prefix + "a"));
+        chats.createOrGetDirectChat(peer, mock); // Existing placeholder rows.
+        mvc.perform(get("/users/search").param("q", prefix)).andExpect(status().isUnauthorized());
+        mvc.perform(get("/chats").with(jwt().jwt(t -> t.subject(peer.toString())
+                .claim("preferred_username", prefix + "b")))).andExpect(status().isOk());
+        mvc.perform(get("/users/search").param("q", prefix.toUpperCase(java.util.Locale.ROOT)).with(principal))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].id").value(peer.toString()))
+                .andExpect(jsonPath("$[0].username").value(prefix + "b"));
+        for (String query : List.of(" ", "%", mock.toString())) {
+            mvc.perform(get("/users/search").param("q", query).with(principal))
+                    .andExpect(status().isOk()).andExpect(content().json("[]"));
+        }
+        mvc.perform(post("/chats/direct").with(principal).contentType("application/json")
+                        .content("{\"recipientId\":\"" + peer + "\"}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.peerId").value(peer.toString()));
+        mvc.perform(get("/chats").with(principal)).andExpect(jsonPath("$[0].peerUsername").value(prefix + "b"));
+    }
+
+    @Test
     void anotherMembersHeaderCannotGrantHistoryAccess() throws Exception {
         var owner = UUID.randomUUID();
         var chat = chats.createOrGetDirectChat(owner, UUID.randomUUID());

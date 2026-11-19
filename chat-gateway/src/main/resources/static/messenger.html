@@ -401,6 +401,13 @@
         }
         .modal input:focus { border-color: #2b5278; }
         .modal input::placeholder { color: #4a5a6a; }
+        .user-results { display: grid; gap: 4px; max-height: 220px; overflow-y: auto; }
+        .user-results button {
+            cursor: pointer; text-align: left; color: #fff; background: #242f3d;
+            border: 0; border-radius: 6px; padding: 9px 12px; overflow-wrap: anywhere;
+        }
+        #userSearchStatus { color: #abbcca; font-size: 13px; }
+        #userSearchStatus:empty, .user-results:empty { display: none; }
         .modal-btns { display: flex; gap: 8px; justify-content: flex-end; }
         .btn-cancel {
             background: transparent;
@@ -414,19 +421,6 @@
             transition: background 0.15s;
         }
         .btn-cancel:hover { background: rgba(255,255,255,0.05); }
-        .btn-start {
-            background: #2b5278;
-            border: none;
-            border-radius: 8px;
-            padding: 8px 16px;
-            color: #fff;
-            font-family: 'Inter', sans-serif;
-            font-size: 13px;
-            font-weight: 500;
-            cursor: pointer;
-            transition: background 0.15s;
-        }
-        .btn-start:hover { background: #3a6a9a; }
     </style>
 </head>
 <body>
@@ -507,13 +501,16 @@
 
 <!-- New chat modal -->
 <div class="modal-overlay" id="newChatModal">
-    <div class="modal">
-        <h3>New Chat</h3>
-        <input type="text" id="newChatUserId" placeholder="User ID"
-               onkeydown="if(event.key==='Enter') startNewChat()">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="newChatTitle"
+         onkeydown="if(event.key==='Escape') closeNewChat()">
+        <h3 id="newChatTitle">Новый чат</h3>
+        <input type="search" id="newChatUserId" aria-label="Username или UUID собеседника"
+               placeholder="Username или UUID" autocomplete="off" oninput="scheduleUserSearch()"
+               onkeydown="if(event.key==='Enter') document.querySelector('#userResults button:only-child')?.click()">
+        <div id="userResults" class="user-results"></div>
+        <p id="userSearchStatus" role="status"></p>
         <div class="modal-btns">
-            <button class="btn-cancel" onclick="closeNewChat()">Cancel</button>
-            <button class="btn-start" onclick="startNewChat()">Start</button>
+            <button class="btn-cancel" onclick="closeNewChat()">Отмена</button>
         </div>
     </div>
 </div>
@@ -724,7 +721,9 @@
                         if (!payload.chatId || !payload.senderId || !payload.messageId) return;
                         stompClient.publish({destination: '/app/messages/ack',
                             body: JSON.stringify({messageId: payload.messageId})});
+                        const newChat = !allChats.some(chat => chat.chatId === payload.chatId);
                         upsertChatPreview(payload.chatId, payload.senderId, payload.content, payload.createdAt);
+                        if (newChat) loadChats();
                         if (payload.chatId === activeChatId) {
                             appendMessage(payload.content, 'received', payload.createdAt, payload.messageId);
                             lastKnownMessageId = payload.messageId;
@@ -776,11 +775,11 @@
 
         if (!chats.length) { if (empty) empty.style.display = 'flex'; return; }
         if (empty) empty.style.display = 'none';
-        chats.forEach(c => list.appendChild(buildChatItem(c.chatId, c.peerId, c.lastMessageContent, c.lastMessageAt)));
+        chats.forEach(c => list.appendChild(buildChatItem(c.chatId, c.peerId, c.lastMessageContent, c.lastMessageAt, c.peerUsername)));
     }
 
-    function buildChatItem(chatId, peerId, preview, time) {
-        const label = peerId ?? 'Group chat';
+    function buildChatItem(chatId, peerId, preview, time, peerUsername) {
+        const label = peerUsername || peerId || 'Group chat';
         const item = document.createElement('div');
         item.className = 'chat-item' + (chatId === activeChatId ? ' active' : '');
         item.dataset.chatId = chatId;
@@ -797,27 +796,28 @@
             <div class="chat-item-time"></div>
         `;
         item.querySelector('.chat-avatar-label').textContent = label.charAt(0).toUpperCase();
-        item.querySelector('.chat-item-name').textContent = peerId ? `User ${peerId}` : label;
+        item.querySelector('.chat-item-name').textContent = label;
         item.querySelector('.chat-item-preview').textContent = preview ?? '';
         item.querySelector('.chat-item-time').textContent = time ? getTime(time) : '';
         return item;
     }
 
-    function upsertChatPreview(chatId, peerId, text, time = null) {
+    function upsertChatPreview(chatId, peerId, text, time = null, peerUsername = null) {
         const existing = allChats.find(chat => chat.chatId === chatId);
         if (existing) {
             existing.peerId ??= peerId;
+            existing.peerUsername ??= peerUsername;
             existing.lastMessageContent = text;
             existing.lastMessageAt = time;
         } else {
-            allChats.unshift({ chatId, peerId, lastMessageContent: text, lastMessageAt: time });
+            allChats.unshift({ chatId, peerId, peerUsername, lastMessageContent: text, lastMessageAt: time });
         }
         renderChatList(allChats);
     }
 
     function filterChats(q) {
         const normalizedQuery = q.toLowerCase();
-        renderChatList(q ? allChats.filter(c => (c.peerId ?? '').toLowerCase().includes(normalizedQuery)) : allChats);
+        renderChatList(q ? allChats.filter(c => (c.peerUsername || c.peerId || '').toLowerCase().includes(normalizedQuery)) : allChats);
     }
 
     // ── Open chat ─────────────────────────────────────────────────
@@ -837,9 +837,9 @@
         const view = document.getElementById('activeChatView');
         view.classList.add('visible');
 
-        const label = peerId ?? 'Group chat';
+        const label = allChats.find(chat => chat.chatId === chatId)?.peerUsername || peerId || 'Group chat';
         document.getElementById('peerAvatar').textContent = label.charAt(0).toUpperCase();
-        document.getElementById('peerName').textContent   = peerId ? 'User ' + peerId : label;
+        document.getElementById('peerName').textContent   = label;
         setPeerStatus('loading...');
         document.getElementById('messages').innerHTML = '';
         lastKnownMessageId = null;
@@ -945,21 +945,55 @@
 
     // ── New chat modal ────────────────────────────────────────────
 
+    let searchVersion = 0;
+    let searchTimer;
+
     function openNewChat() {
         document.getElementById('newChatModal').classList.add('open');
-        setTimeout(() => document.getElementById('newChatUserId').focus(), 50);
+        document.getElementById('newChatUserId').focus();
     }
+
     function closeNewChat() {
         document.getElementById('newChatModal').classList.remove('open');
         document.getElementById('newChatUserId').value = '';
+        scheduleUserSearch();
     }
-    async function startNewChat() {
-        const peerId = document.getElementById('newChatUserId').value.trim();
-        if (!isUuid(peerId) || peerId === currentUser) {
-            alert('Укажите UUID другого пользователя');
-            return;
-        }
 
+    function scheduleUserSearch() {
+        const version = ++searchVersion;
+        clearTimeout(searchTimer);
+        const query = document.getElementById('newChatUserId').value.trim();
+        document.getElementById('userResults').replaceChildren();
+        document.getElementById('userSearchStatus').textContent = '';
+        if (query) searchTimer = setTimeout(() => searchUsers(query, version), 200);
+    }
+
+    async function searchUsers(query, version) {
+        const status = document.getElementById('userSearchStatus');
+        const results = document.getElementById('userResults');
+        try {
+            const response = await apiFetch(MSG_SVC + '/users/search?q=' + encodeURIComponent(query));
+            if (!response.ok) throw new Error();
+            const users = await response.json();
+            if (version !== searchVersion) return;
+            if (isUuid(query) && query.toLowerCase() !== currentUser &&
+                    !users.some(user => user.id === query.toLowerCase())) {
+                users.push({id: query.toLowerCase(), username: null});
+            }
+            for (const user of users) {
+                const button = document.createElement('button');
+                button.textContent = user.username || 'Открыть чат по UUID';
+                button.onclick = () => startNewChat(user.id, user.username);
+                results.append(button);
+            }
+            status.textContent = users.length ? '' : 'Пользователи не найдены';
+        } catch {
+            if (version === searchVersion) status.textContent = 'Поиск недоступен. Попробуйте ещё раз.';
+        }
+    }
+
+    async function startNewChat(peerId, peerUsername) {
+        const version = ++searchVersion;
         try {
             const response = await apiFetch(`${MSG_SVC}/chats/direct`, {
                 method: 'POST',
@@ -969,8 +1003,11 @@
             if (!response.ok) throw new Error(`Failed to create chat: ${response.status}`);
 
             const chat = await response.json();
+            if (version !== searchVersion) return;
             closeNewChat();
-            upsertChatPreview(chat.chatId, chat.peerId, '');
+            const existing = allChats.find(item => item.chatId === chat.chatId);
+            upsertChatPreview(chat.chatId, chat.peerId, existing?.lastMessageContent ?? '',
+                    existing?.lastMessageAt, peerUsername);
             await openChat(chat.chatId, chat.peerId);
         } catch (error) {
             console.error('Failed to create direct chat', error);
