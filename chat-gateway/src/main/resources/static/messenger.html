@@ -436,6 +436,7 @@
     <h1>💬 Messenger</h1>
     <p id="loginStatus" role="status"></p>
     <button class="btn-login" id="loginButton" disabled onclick="login()">Войти через Keycloak</button>
+    <button class="btn-cancel" id="registerButton" disabled onclick="register()">Зарегистрироваться</button>
 </div>
 
 <!-- App -->
@@ -609,6 +610,7 @@
             checkLoginIframe: false,
         });
         document.getElementById('loginButton').disabled = false;
+        document.getElementById('registerButton').disabled = false;
         if (!authenticated) return;
 
         currentUser = auth.subject;
@@ -645,6 +647,10 @@
         if (leaving) return;
         stopSession();
         return auth.login(force ? {prompt: 'login', redirectUri} : {redirectUri});
+    }
+
+    function register() {
+        return auth.register({redirectUri});
     }
 
     function logout() {
